@@ -16,3 +16,5 @@ Four independent visual directions and five interchangeable working names. This 
 Use the name selector to preview a name across all four kits. Each phone switches between Chat, Plans, and Memories. Shortlisting a kit saves your preference in this browser; it does not submit a decision anywhere.
 
 `brand-kits.md` contains the brand rationale, voice, component rules and accessibility guidance. `tokens.json` contains reusable colour, type, spacing and motion tokens. Logo concepts are editable SVGs in `assets/`.
+
+`project-foundation.md` preserves a condensed version of the supplied product and architecture plan for future development.
