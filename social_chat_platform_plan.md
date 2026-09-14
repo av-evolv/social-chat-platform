@@ -1316,7 +1316,7 @@ Epoch keys
 Encrypted messages
 ```
 
-Adding/removing device members advances the group epoch. Application roster generations are separate from MLS epochs. Membership changes close the application-send gate until the exact authorized device roster is cryptographically reconciled; stale senders must resync. Server API revocation takes effect immediately on the primary.
+Adding/removing device members advances the group epoch. Application roster generations are separate from MLS epochs. Membership changes close the application-send gate until the exact authorized device roster is cryptographically reconciled; stale senders must resync. Server API revocation takes effect immediately on the primary. A roster generation is not proof of authority: clients must verify authenticated, resource/version-bound change evidence from entitled existing administrators or explicitly delegated source authorities, independently of a bare server assertion. #6/#10 define and review that evidence format; device identity alone does not authorize group admission.
 
 Benefits:
 
