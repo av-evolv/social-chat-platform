@@ -169,6 +169,8 @@ Avoid designing features that fundamentally require the server to inspect plaint
 
 # 3. Relationship Model
 
+The M0 [domain, authorization and sync contract](docs/domain-contracts.md), tracked by [#2](https://github.com/av-evolv/social-chat-platform/issues/2), refines the illustrative entities below. Use stable Participant IDs for authorship and guest registration; canonicalize claimed aliases before authorization. Audience exclusions win, roles remain resource-specific, and event/media associations do not themselves grant access. The contract defines transaction boundaries, negative authorization cases and downstream implementation owners.
+
 ## 3.1 Core entities
 
 The primary domain objects are:
@@ -1495,6 +1497,8 @@ The cloud acts primarily as:
 ---
 
 ## 8.1 Sync model
+
+The [M0 sync contract](docs/domain-contracts.md#5-durable-synchronization) specifies transactional per-participant stream counters, opaque scoped cursors, fixed page windows, authorization-generation invalidation and consistent snapshot rebuilds. UUIDv7 timestamps and PostgreSQL sequence allocation are not commit-order cursors. Private sync and authorization use the primary; [#8](https://github.com/av-evolv/social-chat-platform/issues/8) implements and tests these invariants.
 
 Use append/change sequencing.
 
