@@ -15,6 +15,7 @@ test('universal shell boots without runtime errors or horizontal overflow', asyn
   await expect(page.getByRole('heading', { name: 'Good things start with a conversation.' }))
     .toHaveCSS('font-size', page.viewportSize()!.width >= 820 ? '58px' : '42px');
   await page.waitForLoadState('networkidle');
+  await expect(page).toHaveTitle('Larynx — Your people, together');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(errors).toEqual([]);
 });

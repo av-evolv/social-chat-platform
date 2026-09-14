@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Head from 'expo-router/head';
 import { Platform, StyleSheet, Text, View, ScrollView, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -31,6 +32,12 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      {Platform.OS === 'web' && (
+        <Head>
+          <title>Larynx — Your people, together</title>
+          <meta name="description" content="A home for your conversations, plans, and shared moments. Larynx is in early development." />
+        </Head>
+      )}
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={[styles.page, !wide && styles.pageCompact]}>
           <View style={styles.header}>
