@@ -33,7 +33,13 @@ jobs:
       - name: Start platform
         run: |
           cp .env.example .env
+          npm run oauth:setup
           docker compose up --build --detach --wait --wait-timeout 180
+      - name: Verify OAuth protocol and PostgreSQL persistence
+        env:
+          OAUTH_TEST_DATABASE_URL: postgresql://larynx:larynx-local-only@127.0.0.1:5432/larynx
+          OAUTH_TEST_BROWSER: '1'
+        run: npm run test --workspace @larynx/api
       - run: npm run test:infra
       - run: npm run test:web
       - name: Verify database outage and recovery

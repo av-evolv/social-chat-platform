@@ -9,3 +9,5 @@ output
 .playwright-cli
 test-results
 playwright-report
+
+.env.oauth

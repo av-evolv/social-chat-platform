@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { LogController } from 'fastify';
 
 export interface Database {
   query(sql: string): Promise<unknown>;
@@ -6,7 +6,7 @@ export interface Database {
 }
 
 export function buildApp(database: Database, options: { logger?: boolean } = {}) {
-  const app = Fastify({ logger: options.logger ?? false });
+  const app = Fastify({ logger: options.logger ?? false, logController: new LogController({ disableRequestLogging: true }) });
 
   app.addHook('onClose', async () => {
     await database.end();
