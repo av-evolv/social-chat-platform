@@ -3992,7 +3992,7 @@ Support quiet hours, snooze, timezone-aware delivery, accessible alternatives, l
 
 # 45. GitHub Delivery Roadmap
 
-GitHub issues and milestones are the active roadmap. The plan records enduring architecture and scope; implementation details, checklists, decisions and evidence belong in issues and pull requests. Dependency order is deliberate: establish contracts and threat model before security-sensitive features; OAuth gates product APIs; event/media encryption and real-device verification gate public release. Future and enterprise milestones carry no implied delivery dates.
+GitHub issues and milestones are the active roadmap. An organisation-level **Larynx delivery** Project is planned for shared ownership, status and a date-based timeline; its creation/access is pending in #31. Native issue dependencies already identify blockers. Until project setup is complete, agents coordinate through issue comments and pull requests. Ownership claims, worktree isolation and date/status maintenance follow `CLAUDE.md` (also exposed through the `AGENTS.md` symlink). Project setup is tracked by [#31](https://github.com/av-evolv/social-chat-platform/issues/31). The plan records enduring architecture and scope; implementation details, checklists, decisions and evidence belong in issues and pull requests. Dependency order is deliberate: establish contracts and threat model before security-sensitive features; OAuth gates product APIs; event/media encryption and real-device verification gate public release. Future and enterprise milestones carry no implied delivery dates.
 
 For each selected issue: expand a checkable issue plan, save the detailed implementation/verification plan in the associated pull request before coding, preserve incremental commits, update progress, and add a review/results section with evidence. Use regular pushes and never force-push. Squash merge only when the pull request is complete and required checks pass. The user has authorized starting foundation implementation after the roadmap is created.
 
@@ -4001,6 +4001,7 @@ For each selected issue: expand a checkable issue plan, save the detailed implem
 - [#1 — Establish the Larynx stack and development foundation](https://github.com/av-evolv/social-chat-platform/issues/1).
 - [#2 — Define domain, authorization and sync contracts](https://github.com/av-evolv/social-chat-platform/issues/2).
 - [#3 — Define encryption, metadata and retention threat model](https://github.com/av-evolv/social-chat-platform/issues/3).
+- [#31 — Coordinate agents with GitHub Projects and dependencies](https://github.com/av-evolv/social-chat-platform/issues/31).
 - [#30 — Resolve Expo Router malformed-query decoder advisory](https://github.com/av-evolv/social-chat-platform/issues/30); blocks externally exposed deep-link/authentication flows and public release.
 
 ## [M1 — Identity and social graph](https://github.com/av-evolv/social-chat-platform/milestone/2)
