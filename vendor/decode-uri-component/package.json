@@ -1,0 +1,16 @@
+{
+  "name": "decode-uri-component",
+  "version": "0.5.0-larynx.1",
+  "private": true,
+  "description": "Larynx CommonJS compatibility build of upstream decode-uri-component 0.5.0",
+  "main": "index.cjs",
+  "type": "commonjs",
+  "sideEffects": false,
+  "license": "MIT",
+  "repository": "SamVerschueren/decode-uri-component",
+  "files": [
+    "index.cjs",
+    "license",
+    "README.md"
+  ]
+}
