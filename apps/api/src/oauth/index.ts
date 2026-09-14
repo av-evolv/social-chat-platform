@@ -116,10 +116,18 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
     app.route<{ Params: { uid: string }; Body: URLSearchParams }>({
       method: ['GET', 'POST'], url: '/oidc/interaction/:uid',
       handler: async (request, reply) => {
-        reply.headers({ 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'content-security-policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'", 'x-content-type-options': 'nosniff' });
+        reply.headers({ 'cache-control': 'no-store', 'referrer-policy': 'same-origin', 'content-security-policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'", 'x-content-type-options': 'nosniff' });
         try {
           const details = await provider.interactionDetails(request.raw, reply.raw);
           if (details.uid !== request.params.uid || !['login', 'consent'].includes(details.prompt.name)) return reply.code(400).send({ error: 'invalid_interaction' });
+          const approved = typeof details.params.client_id === 'string' ? clients.get(details.params.client_id) : undefined;
+          const redirect = details.params.redirect_uri;
+          if (typeof redirect !== 'string' || !approved?.redirect_uris?.includes(redirect)) return reply.code(400).send({ error: 'invalid_interaction' });
+          const destination = new URL(redirect);
+          // Browsers apply form-action to the provider's redirect chain too.
+          // Permit only this registered callback origin (or native app scheme).
+          const formDestination = ['https:', 'http:'].includes(destination.protocol) ? destination.origin : destination.protocol;
+          reply.header('content-security-policy', `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' ${formDestination}`);
           const verified = await authenticate(request.raw);
           if (!verified) return reply.code(503).send({ error: 'account_authentication_unavailable' });
           if (details.session?.accountId && details.session.accountId !== verified.accountId) return reply.code(403).send({ error: 'account_mismatch' });

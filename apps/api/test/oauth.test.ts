@@ -70,7 +70,7 @@ interface Authorization {
   verifier: string;
 }
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, redirectUri = callback) {
   const schema = `oauth_http_${randomBytes(8).toString('hex')}`;
   const pool = new Pool({ connectionString: databaseUrl! });
   const port = await availablePort();
@@ -91,17 +91,17 @@ async function fixture(t: TestContext) {
     cookieKeys: ['fixture-cookie-signing-key-with-at-least-thirty-two-bytes'],
     clients: [{
       client_id: 'fixture-public', client_name: 'Fixture application',
-      redirect_uris: [callback], response_types: ['code'],
+      redirect_uris: [redirectUri], response_types: ['code'],
       grant_types: ['authorization_code', 'refresh_token'],
       token_endpoint_auth_method: 'none',
-      allowedScopes: ['profile:read', 'messages:read'], origins: ['https://client.example'],
+      allowedScopes: ['profile:read', 'messages:read'], origins: [new URL(redirectUri).origin],
     }, {
       client_id: 'fixture-other', client_name: 'Another fixture application',
-      redirect_uris: [callback], response_types: ['code'], grant_types: ['authorization_code'],
-      token_endpoint_auth_method: 'none', allowedScopes: ['profile:read'], origins: ['https://client.example'],
+      redirect_uris: [redirectUri], response_types: ['code'], grant_types: ['authorization_code'],
+      token_endpoint_auth_method: 'none', allowedScopes: ['profile:read'], origins: [new URL(redirectUri).origin],
     }, {
       client_id: 'fixture-confidential', client_secret: confidentialSecret,
-      redirect_uris: [callback], response_types: ['code'], grant_types: ['authorization_code'],
+      redirect_uris: [redirectUri], response_types: ['code'], grant_types: ['authorization_code'],
       token_endpoint_auth_method: 'client_secret_basic', allowedScopes: ['profile:read'], origins: [],
     }],
   };
@@ -132,7 +132,7 @@ async function fixture(t: TestContext) {
     const browser = new Browser(origin, authenticated);
     const verifier = randomBytes(32).toString('base64url');
     const params = new URLSearchParams({
-      client_id: 'fixture-public', redirect_uri: callback,
+      client_id: 'fixture-public', redirect_uri: redirectUri,
       response_type: 'code', scope: 'openid offline_access profile:read',
       resource: config.resource, state: 'fixture-state', nonce: 'fixture-nonce',
       code_challenge: createHash('sha256').update(verifier).digest('base64url'),
@@ -151,7 +151,7 @@ async function fixture(t: TestContext) {
       const location = response.headers.get('location');
       if (location) {
         const next = new URL(location, origin);
-        if (next.origin === 'https://client.example') return next;
+        if (next.origin === new URL(redirectUri).origin) return next;
         response = await auth.browser.request(next.href);
         continue;
       }
@@ -172,7 +172,7 @@ async function fixture(t: TestContext) {
     return fetch(tokenEndpoint, {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ grant_type: 'authorization_code', client_id: 'fixture-public',
-        code, code_verifier: verifier, redirect_uri: callback, resource: config.resource, ...extra }),
+        code, code_verifier: verifier, redirect_uri: redirectUri, resource: config.resource, ...extra }),
     });
   }
 
@@ -252,7 +252,14 @@ test('OAuth protocol and current authorization against PostgreSQL', {
     skip: process.env.OAUTH_TEST_BROWSER === '1' ? false : 'Set OAUTH_TEST_BROWSER=1 after installing Playwright Chromium',
     timeout: 30_000,
   }, async (t) => {
-    const f = await fixture(t);
+    // Playwright routing does not intercept every hop in an HTTP redirect chain.
+    // A second real server exercises the cross-origin callback without DNS or interception.
+    const callbackApp = Fastify();
+    callbackApp.get('/callback', (_request, reply) => reply.type('text/html').send('<!doctype html><title>Fixture callback</title>'));
+    const callbackOrigin = await callbackApp.listen({ host: '127.0.0.1', port: 0 });
+    t.after(() => callbackApp.close());
+    const browserCallback = `${callbackOrigin}/callback`;
+    const f = await fixture(t, browserCallback);
     const { chromium } = await import('@playwright/test');
     const browser = await chromium.launch();
     t.after(() => browser.close());
@@ -265,24 +272,33 @@ test('OAuth protocol and current authorization against PostgreSQL', {
     const submissionOrigins: Promise<string | undefined>[] = [];
     const browserDiagnostics: string[] = [];
     page.on('console', message => browserDiagnostics.push(message.text()));
+    page.on('requestfailed', request => browserDiagnostics.push(`${new URL(request.url()).pathname} ${request.failure()?.errorText}`));
     page.on('response', response => browserDiagnostics.push(`${response.status()} ${new URL(response.url()).pathname}`));
     page.on('request', (request) => {
       if (request.method() === 'POST' && request.url().startsWith(`${f.origin}/oidc/interaction/`)) {
         submissionOrigins.push(request.allHeaders().then((headers) => headers.origin));
       }
     });
-    await page.route(`${callback}**`, (route) => route.fulfill({
-      status: 200, contentType: 'text/html', body: '<!doctype html><title>Fixture callback</title>',
-    }));
+    const isCallback = (url: URL) => url.origin === callbackOrigin && url.pathname === '/callback';
     const verifier = randomBytes(32).toString('base64url');
     const params = new URLSearchParams({
-      client_id: 'fixture-public', redirect_uri: callback,
+      client_id: 'fixture-public', redirect_uri: browserCallback,
       response_type: 'code', scope: 'openid offline_access profile:read',
       resource: f.config.resource, state: 'chromium-state', nonce: 'chromium-nonce',
       code_challenge: createHash('sha256').update(verifier).digest('base64url'),
       code_challenge_method: 'S256', prompt: 'consent',
     });
-    await page.goto(`${String(f.discovery.authorization_endpoint)}?${params}`);
+    const interactionPage = await page.goto(`${String(f.discovery.authorization_endpoint)}?${params}`);
+    assert.ok(interactionPage);
+    const interactionHeaders = interactionPage.headers();
+    assert.equal(interactionHeaders['referrer-policy'], 'same-origin');
+    const csp = interactionHeaders['content-security-policy'] ?? '';
+    const directives = csp.split(';').map(directive => directive.trim());
+    assert.ok(directives.includes("default-src 'none'"));
+    assert.ok(directives.includes("frame-ancestors 'none'"));
+    const formAction = directives.find(directive => directive.startsWith('form-action '));
+    assert.ok(formAction);
+    assert.deepEqual(new Set(formAction.split(/\s+/).slice(1)), new Set(["'self'", callbackOrigin]));
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     try { await page.getByRole('button', { name: 'Allow', exact: true }).waitFor(); }
     catch (error) {
@@ -291,10 +307,16 @@ test('OAuth protocol and current authorization against PostgreSQL', {
         cookies: (await context.cookies()).map(({ name, path, sameSite, httpOnly, secure }) => ({ name, path, sameSite, httpOnly, secure })) }));
       throw error;
     }
-    await Promise.all([
-      page.waitForURL(`${callback}**`),
-      page.getByRole('button', { name: 'Allow', exact: true }).click(),
-    ]);
+    try {
+      await Promise.all([
+        page.waitForURL(isCallback),
+        page.getByRole('button', { name: 'Allow', exact: true }).click(),
+      ]);
+    } catch (error) {
+      await page.waitForTimeout(100);
+      t.diagnostic(JSON.stringify({ url: page.url(), browserDiagnostics }));
+      throw error;
+    }
     const destination = new URL(page.url());
     assert.equal(destination.searchParams.get('state'), 'chromium-state');
     assert.equal(destination.searchParams.get('error'), null);
@@ -385,6 +407,8 @@ test('OAuth protocol and current authorization against PostgreSQL', {
       { code_challenge: undefined, code_challenge_method: undefined },
       { resource: 'https://other.example/api' },
       { redirect_uri: 'https://evil.example/callback' },
+      { redirect_uri: 'https://client.example/unregistered' },
+      { redirect_uri: `${callback}?unregistered=1` },
     ]) {
       const auth = await f.begin(overrides);
       const location = auth.response.headers.get('location');
