@@ -1372,7 +1372,7 @@ random Event Content Key
 encrypted event document
 ```
 
-The event key can then be wrapped/distributed to each authorized audience. Event audience is independent of conversation association. A conversation-wide envelope is allowed only when every receiving device is authorized for the event; otherwise use explicit authorized-device delivery. Rotate keys for future document revisions on audience removal. New attendees receive the explicitly shared current revision, not all historical revisions.
+The event key can then be wrapped/distributed to each authorized audience. Event audience is independent of conversation association. A conversation-wide envelope is allowed only when every receiving device is authorized for the event; otherwise use explicit authorized-device delivery. Rotate keys for future document revisions on audience removal. For audience additions, re-encrypt current content as a fresh revision with a fresh key; new attendees must not receive older keys that decrypt historical revisions. This explicit current-event grant does not grant past conversation history.
 
 Conceptually:
 
