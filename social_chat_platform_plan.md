@@ -850,7 +850,7 @@ erDiagram
 
 ---
 
-# 5. Proposed Technical Architecture
+# 5. Selected Technical Architecture
 
 ## 5.1 Backend
 
@@ -874,12 +874,12 @@ A stateless application service exposing:
 
 - REST or JSON API for durable object operations;
 - WebSocket connection for realtime message/event delivery;
-- authentication/session endpoints;
+- OAuth2/OpenID Connect authorization, token, consent and account authentication endpoints;
 - media upload coordination;
 - invitation management;
 - device/key management.
 
-A Crystal backend is entirely suitable for this architecture.
+Use TypeScript on Node.js 24 LTS with Fastify 5, as selected in section 5.5. The earlier Crystal suggestion is superseded. The backend is a separate deployable modular monolith and an OAuth2/OpenID Connect provider for both first-party and third-party applications.
 
 Potential internal service split:
 
@@ -925,7 +925,7 @@ A graph database is unnecessary for the initial relationship model.
 
 Indexes/materialized tables can efficiently resolve effective conversation membership.
 
-Use UUIDv7 identifiers where supported.
+Use PostgreSQL 18 and UUIDv7 identifiers. Access PostgreSQL through `pg` with versioned, reviewed SQL migrations. Keep explicit primary and optional read-replica pools: authorization, revocation, writes and read-after-write consistency use the primary; only appropriately stale-tolerant reads use replicas. PostgreSQL `tsvector`/GIN indexes apply only to deliberately server-visible text, never decrypted private messages or encrypted event documents.
 
 ---
 
@@ -949,17 +949,13 @@ API
 Object Store
 ```
 
-Candidate object stores:
+Use S3-compatible object storage through AWS SDK for JavaScript v3. Garage 2.3 is the S3 stand-in in Docker Compose and CI; production can use AWS S3 or a compatible provider after compatibility verification. Keep the provider abstraction thin.
 
-```text
-AWS S3
-Google Cloud Storage
-Azure Blob Storage
-Cloudflare R2
-S3-compatible self-hosted storage
-```
+Clients upload and download directly using short-lived, narrowly scoped signed requests. Persist multipart upload sessions so clients can resume transfers. The backend authorizes initiation, parts and completion, and validates completed object ownership, size, part inventory and available ciphertext integrity metadata before publishing media. E2EE validation cannot inspect plaintext or promise server-side malware scanning.
 
-Keep provider abstraction thin.
+Use separate internal and externally reachable signing endpoints; never rewrite a signed URL host. Configure CORS explicitly and test real multipart and signed transfers against Garage.
+
+Deletion belongs to the backend: a SQL transaction revokes visibility, records a tombstone and enqueues a durable deletion-outbox job. After commit, a backend worker deletes objects and derivatives with idempotent retries and reconciliation. PostgreSQL and S3 do not share an atomic transaction; an object-store call inside a SQL transaction cannot provide atomic rollback. This outbox implements transactional deletion intent without losing work on crashes.
 
 Recommended storage layout:
 
@@ -1038,6 +1034,50 @@ Disadvantages:
 Allow users to opt into server-side media processing.
 
 This weakens the E2EE guarantee and should not be the default if privacy is a core product promise.
+
+---
+
+## 5.5 Language and framework decisions (14 September 2026)
+
+The selected stack uses **TypeScript across frontend and backend**, with separate application boundaries and deployments in one repository. These decisions supersede earlier provisional language suggestions. Foundation delivery is tracked by [issue #1](https://github.com/av-evolv/social-chat-platform/issues/1).
+
+| Area | Decision | Reason and boundary |
+|---|---|---|
+| Web, iOS and Android | One Expo SDK 57 app with React Native 0.86, React 19.2, Expo Router and React Native Web 0.21 | Share product screens, navigation, domain logic and client services; responsive layouts and platform adapters handle real differences. |
+| Frontend language and styling | TypeScript 6, React Native primitives, StyleSheet and shared design tokens | Keep the initial design system small and accessible; existing brand explorations remain design references. |
+| Backend | TypeScript 6, Node.js 24 LTS, Fastify 5 | Separate stateless modular monolith with HTTP JSON APIs, realtime notification endpoints and background workers. |
+| Authorization server | `oidc-provider` 9, integrated into the backend with PostgreSQL persistence | Use a maintained OAuth2/OIDC provider implementation instead of writing protocol primitives. |
+| Database | PostgreSQL 18, `pg`, SQL migrations | Preserve direct control over relational authorization, transactions, read replicas, `tsvector` and outboxes. |
+| Native local storage | `expo-sqlite`, with SQLCipher for private persistent data and SecureStore for protected keys | Database encryption, device key protection and message E2EE are separate concerns. |
+| Browser local storage | IndexedDB through Dexie, behind the same client repository interface | Expo SQLite web support is currently alpha and requires cross-origin isolation; avoid making it the browser foundation. Sensitive persisted values require application encryption and an explicit key-lifecycle design. |
+| Object storage | S3-compatible API, AWS SDK v3; Garage 2.3 in local development and CI | Signed direct upload/download, resumable multipart and transactional deletion outbox. |
+| Client AI | Shared TypeScript suggestion pipeline; benchmark ONNX Runtime Web and ONNX Runtime React Native adapters | Start with local deterministic extraction; optional models must prove device compatibility, accuracy, memory and battery costs. |
+| Workspace and delivery | npm workspaces, locked dependencies, Docker Compose and GitHub Actions | One repository with distinct `apps/client` and `apps/api`; add shared packages when there is actual shared code. |
+| Verification | Node test runner for backend/domain behavior, TypeScript checks, Expo exports; Playwright and native device tests as features arrive | Browser exports and native JS bundles do not substitute for real native builds and device verification. |
+
+Pin compatible patch versions in the lockfile and align React/React Native packages with Expo's SDK matrix. Use Node 24 locally and in CI; review supported release upgrades deliberately. SDK 57 currently requires iOS 16.4+ and Xcode 26.4+; confirm target-device requirements before native distribution.
+
+### Frontend sharing policy
+
+`apps/client` is the product frontend for mobile and desktop browsers, iOS and Android. Share most UI and all suitable business logic; isolate storage, key handling, notifications, camera/media, background tasks and inference in `.web.ts` / `.native.ts` adapters. Small Swift/Kotlin modules are allowed when native capabilities require them. Native modules use Expo development builds. No separate web product implementation or desktop wrapper is planned initially; the responsive web app serves desktop users.
+
+A public marketing site or document-heavy organiser content can become a separate deployment later if requirements justify it. Do not add Next.js, a second frontend framework, a heavyweight monorepo orchestrator or an ORM merely for the scaffold.
+
+### OAuth and API boundary
+
+All product API access requires OAuth2 access tokens with explicit application identity, audience and scopes, followed by object-level authorization. First-party clients follow the same controls as third-party clients. Public clients use authorization code with PKCE; browser/native redirects, consent, refresh rotation, revocation and developer registration require explicit policy. Use PostgreSQL provider adapters rather than production in-memory sessions. Long-lived bearer tokens must not be placed in URLs; realtime connections use a suitably scoped short-lived ticket or an authenticated handshake.
+
+Protocol bootstrap endpoints (authorization/token/discovery), account authentication interactions and operational liveness/readiness probes are explicitly distinguished from product APIs. The foundation exposes no unauthenticated placeholder product routes. Browser credential/key handling needs its own reviewed design; SecureStore is not a browser storage solution.
+
+### Sources and tradeoffs
+
+- [Expo universal web development](https://docs.expo.dev/workflow/web/), [SDK 57 release notes](https://expo.dev/changelog/sdk-57), [SDK compatibility matrix](https://docs.expo.dev/versions/latest/) and [workspaces](https://docs.expo.dev/guides/monorepos/).
+- [Expo SQLite limitations and SQLCipher](https://docs.expo.dev/versions/latest/sdk/sqlite/), [SecureStore](https://docs.expo.dev/versions/latest/sdk/securestore/) and [Dexie](https://dexie.org/docs).
+- [Node.js release policy](https://nodejs.org/en/about/previous-releases), [Fastify support policy](https://fastify.dev/docs/latest/Reference/LTS/), [oidc-provider](https://github.com/panva/node-oidc-provider) and [node-postgres transactions](https://node-postgres.com/features/transactions).
+- [Garage quick start](https://garagehq.deuxfleurs.fr/documentation/quick-start/) and [S3 compatibility](https://garagehq.deuxfleurs.fr/documentation/reference-manual/s3-compatibility/).
+- [ONNX Runtime JavaScript](https://onnxruntime.ai/docs/get-started/with-javascript/) and [browser inference](https://onnxruntime.ai/docs/tutorials/web/).
+
+Expo fits the TypeScript and mobile-media requirements better than a separate native/web implementation. Flutter would introduce Dart; Capacitor is a reasonable web-first alternative but is not selected for this native-oriented chat client. TypeScript/Fastify replaces Crystal to keep one language and use the maintained Node OAuth provider ecosystem. The TypeScript shared workspace does not couple frontend deployment to the backend or permit clients to import database/server internals.
 
 ---
 
@@ -1433,15 +1473,7 @@ This makes offline-first local storage important.
 
 # 8. Client Data Model and Synchronization
 
-Each device should maintain a local encrypted database.
-
-Possible choices:
-
-```text
-SQLite
-SQLCipher
-platform-specific secure storage + SQLite
-```
+Each client should maintain a protected local data store. Use SQLite/SQLCipher on native devices and encrypted IndexedDB records in browsers through the adapters selected in section 5.5. A shared repository and sync interface hides the storage engine, not its security differences. Do not persist decrypted private content until key storage, logout, revocation and local wipe behavior are defined.
 
 The local client maintains:
 
@@ -1518,7 +1550,7 @@ Notification preferences should exist independently from membership.
 
 With E2EE, server-side plaintext search is incompatible with the privacy model.
 
-Perform search locally.
+Perform private-content search locally. Use PostgreSQL `tsvector` for deliberately server-visible fields such as permitted public/organisation-managed content; scope and authorize every result. Never mirror decrypted E2EE content to a server-side search index.
 
 Client indexes:
 
@@ -1608,7 +1640,7 @@ Sync protocol v1
 
 Build:
 
-- Crystal backend application;
+- TypeScript/Node.js/Fastify backend application and OAuth2 provider;
 - PostgreSQL schema;
 - UUIDv7 IDs;
 - authentication/session framework;
@@ -1639,15 +1671,7 @@ receive message on another client
 
 ## Phase 2 — Basic clients
 
-Build one primary client first.
-
-Recommended:
-
-```text
-mobile-first
-```
-
-with desktop/web after core interaction is validated.
+Build one universal Expo/React Native frontend with mobile-first interaction design and responsive web support from the foundation. Deliver and verify the same product flows on web, iOS and Android; use platform adapters rather than separate frontend applications.
 
 Features:
 
@@ -1658,7 +1682,7 @@ Features:
 - message composer;
 - invitations;
 - push notifications;
-- local SQLite data cache;
+- native SQLite and web IndexedDB data-cache adapters;
 - sync engine.
 
 Avoid implementing every social feature before validating the core chat experience.
@@ -1824,7 +1848,7 @@ More advanced computer-vision clustering can be optional later.
 
 ## Phase 9 — Intelligent organisation
 
-Once there is sufficient usage data, add local/private heuristics for:
+Introduce lightweight event intent/date suggestions alongside the event milestone, without waiting for server collection of private messages. Later, benchmark optional local models for:
 
 - event suggestions from conversation;
 - detecting proposed dates/times;
@@ -1833,7 +1857,7 @@ Once there is sufficient usage data, add local/private heuristics for:
 - topic extraction;
 - reminder suggestions.
 
-Where possible, run this intelligence client-side.
+Run this intelligence primarily client-side, following section 43. Model evaluation should use synthetic or explicitly consented fixtures; private production conversation collection is not a prerequisite.
 
 The initial product should remain fully useful without AI.
 
@@ -1881,58 +1905,28 @@ The product differentiation comes from private shared context, not public broadc
 
 ---
 
-# 14. Suggested Backend Module Layout
-
-For a Crystal codebase:
+# 14. Selected Workspace and Backend Module Layout
 
 ```text
-src/
-  accounts/
-    user.cr
-    identity.cr
-    device.cr
-
-  circles/
-    circle.cr
-    membership.cr
-
-  conversations/
-    conversation.cr
-    audience.cr
-    membership.cr
-    subscription.cr
-    message.cr
-
-  events/
-    event.cr
-    attendee.cr
-    associations.cr
-
-  media/
-    media.cr
-    storage.cr
-    encryption.cr
-
-  crypto/
-    device_identity.cr
-    groups.cr
-    envelope.cr
-
-  sync/
-    change_log.cr
-    cursor.cr
-
-  notifications/
-    push.cr
-    email.cr
-    sms.cr
-
-  invites/
-    invitation.cr
-    guest.cr
+apps/
+  client/                  # Expo Router: web, iOS and Android
+  api/                     # Fastify service and backend workers
+    src/
+      accounts/
+      oauth/
+      circles/
+      conversations/
+      events/
+      media/
+      crypto/              # Device/key coordination, never private plaintext
+      sync/
+      notifications/
+      invites/
+packages/                  # Add contracts/domain modules as shared needs emerge
+infra/                     # Local/CI infrastructure configuration
 ```
 
-Keep domain boundaries explicit even if everything initially executes in a single application process.
+Use `@larynx/*` package names and Larynx namespaces. The layout is a target, not a requirement to create empty modules. Keep domain boundaries explicit even if backend modules initially execute in one process. API schemas define the network contract; shared TypeScript types do not replace runtime validation or permit server-only imports in clients.
 
 ---
 
@@ -1944,7 +1938,7 @@ Initial production deployment:
 Load Balancer
       │
       ▼
-Crystal Application
+Node.js / Fastify Application
       │
       ├──────── PostgreSQL
       │
@@ -2027,7 +2021,9 @@ Important security invariants include:
 
 # 18. Development Milestones
 
-A reasonable milestone sequence is:
+The GitHub roadmap in section 45 is the active delivery sequence and source of issue status. The original capability groups below remain product scope references; encryption and threat-model work start in the foundation, not only at the end of these groups.
+
+Original capability groups:
 
 ### Milestone A — Social graph
 
@@ -3940,4 +3936,118 @@ memories
 ```
 
 is the long-term product.
+
+
+# 43. Client AI and Streamlined Event Creation
+
+AI should help turn ordinary conversation into useful event structure while keeping inference costs and private content on the user's device wherever practical. Delivery is tracked by [issue #13](https://github.com/av-evolv/social-chat-platform/issues/13); authoritative issue links are also listed in section 45.
+
+Examples:
+
+- “Lunch Saturday at 12:30 at Manly?” offers **Create event**, prefilled with locally extracted information.
+- “Let's make it 1 instead” offers **Update Lunch**, showing the proposed time and the message it came from.
+- “The venue is now the cafe opposite the station” proposes a location change to an accessible existing event.
+
+Analyze only messages already available to the current user, after local decryption for E2EE content. A conversation's private evidence must never become visible to other event audiences just because the event is shared. Display source messages only to viewers authorized to read them.
+
+### Pipeline and user control
+
+1. Use bounded local context and deterministic intent/date parsing to identify candidates.
+2. Optionally run a compact, quantized intent/entity model on capable devices to extract dates, times, timezones, places, attendees and amendments.
+3. Match against events the user can access, accounting for negation, ambiguity, relative dates, locale/timezone and multiple events in a conversation.
+4. Present a dismissible suggestion with confidence/ambiguity cues, a source message, editable fields and a before/after diff for updates.
+5. Require user confirmation before creating or changing an event or sending invitations. Recheck permissions and event version at submission; handle duplicate suggestions and concurrent edits.
+
+Message content is data, not authority for the assistant to invoke tools or override confirmation. Suggestions should not interrupt typing or make event organization dependent on AI. Manual creation and editing remain complete workflows on unsupported devices and when models are disabled.
+
+### Execution and cost policy
+
+Prefer deterministic extraction first, then evaluate ONNX Runtime Web (WebGPU where supported, WASM fallback) and ONNX Runtime React Native behind a shared interface. Native runtime/Expo compatibility, operators, model license and accuracy are validation gates, not assumptions. Select a specific model only after measuring real-device latency, download size, memory, thermal/battery use and extraction quality.
+
+Run browser inference in workers and native inference off the UI thread. Version/cache optional model downloads, provide download/storage controls, and limit context, inference frequency and background use. Avoid retaining plaintext inference logs or training on conversations by default. Clearing an account must clear associated private model context/cache.
+
+Cloud inference is an optional, explicitly enabled capability with disclosed content transfer and cost controls; it is never a silent fallback. On-device suggestions do not weaken the backend's OAuth authorization or object access rules. Evaluate event extraction with synthetic/consented fixtures covering ambiguous dates, timezones, cancellations, revised plans, multiple events, duplicates and adversarial message text.
+
+# 44. Future Features: Ephemeral Sharing and Shared Moments
+
+These are exploratory, opt-in capabilities after dependable messaging, E2EE and media lifecycle controls. They do not expand the initial MVP or imply guaranteed erasure from recipients' devices.
+
+## 44.1 Disappearing messages
+
+Support optional conversation defaults and per-message expiry, with clearly defined timers (for example, time since sending or first viewing). Specify the policy before implementation: offline delivery, edits, replies/quotes, notifications, attachments, multi-device sync, exported content and backups must not accidentally retain expired private content. Make changes to conversation retention visible to participants.
+
+Expiration removes access and eventually purges ciphertext, thumbnails, local decrypted caches and relevant keys under a documented retention policy. Persist server tombstones/deletion jobs transactionally and reconcile retries. Client-only timers cannot guarantee server or other-device cleanup. Enterprise-managed retention is an explicit separate policy, never silently substituted for personal disappearing content.
+
+## 44.2 View-once and timed photos/videos
+
+Offer **view once** and **view for a chosen duration** as alternatives to durable sharing. Design atomic consumption across devices, offline behavior and interrupted viewing before promising semantics. Use short-lived access grants, exclude ephemeral items from automatic galleries/memories and model analysis by default, and purge derivatives and cached keys alongside originals.
+
+The UI must explain that screenshots, screen recording, modified clients and another camera can preserve content. Platform screenshot signals are best-effort and cannot establish a security guarantee. Decide deliberately how expiry interacts with already-issued signed URLs and downloaded encrypted blobs.
+
+## 44.3 BeReal-style gamification
+
+Explore optional circle/event “shared moment” prompts, short capture windows, dual-camera photos where supported, event photo challenges and gentle shared milestones. Make participation playful and cooperative, with no punitive streak loss, public ranking, guilt notifications or requirement to disclose location.
+
+Support quiet hours, snooze, timezone-aware delivery, accessible alternatives, late participation and per-circle opt-out. Sharing always requires an explicit action, with an audience preview. A moment becomes durable shared memory only under the chosen retention policy and consent; prompts do not override view-once/expiry settings. Test whether these ideas improve meaningful participation before committing to broader rollout.
+
+# 45. GitHub Delivery Roadmap
+
+GitHub issues and milestones are the active roadmap. The plan records enduring architecture and scope; implementation details, checklists, decisions and evidence belong in issues and pull requests. Dependency order is deliberate: establish contracts and threat model before security-sensitive features; OAuth gates product APIs; event/media encryption and real-device verification gate public release. Future and enterprise milestones carry no implied delivery dates.
+
+For each selected issue: expand a checkable issue plan, save the detailed implementation/verification plan in the associated pull request before coding, preserve incremental commits, update progress, and add a review/results section with evidence. Use regular pushes and never force-push. Squash merge only when the pull request is complete and required checks pass. The user has authorized starting foundation implementation after the roadmap is created.
+
+## [M0 — Platform foundation](https://github.com/av-evolv/social-chat-platform/milestone/1)
+
+- [#1 — Establish the Larynx stack and development foundation](https://github.com/av-evolv/social-chat-platform/issues/1).
+- [#2 — Define domain, authorization and sync contracts](https://github.com/av-evolv/social-chat-platform/issues/2).
+- [#3 — Define encryption, metadata and retention threat model](https://github.com/av-evolv/social-chat-platform/issues/3).
+
+## [M1 — Identity and social graph](https://github.com/av-evolv/social-chat-platform/milestone/2)
+
+- [#4 — Implement the OAuth2 and OpenID Connect provider](https://github.com/av-evolv/social-chat-platform/issues/4).
+- [#5 — Implement accounts, identities and devices](https://github.com/av-evolv/social-chat-platform/issues/5).
+- [#6 — Implement circles and conversation audiences](https://github.com/av-evolv/social-chat-platform/issues/6).
+- [#7 — Implement email invitations and identity claiming](https://github.com/av-evolv/social-chat-platform/issues/7).
+
+## [M2 — Messaging and client data](https://github.com/av-evolv/social-chat-platform/milestone/3)
+
+- [#8 — Implement durable messages, sync and realtime delivery](https://github.com/av-evolv/social-chat-platform/issues/8).
+- [#9 — Implement shared chat UI and local persistence](https://github.com/av-evolv/social-chat-platform/issues/9).
+- [#10 — Implement device keys and encrypted conversations](https://github.com/av-evolv/social-chat-platform/issues/10).
+- [#11 — Implement subscriptions and opaque notifications](https://github.com/av-evolv/social-chat-platform/issues/11).
+
+## [M3 — Events and client intelligence](https://github.com/av-evolv/social-chat-platform/milestone/4)
+
+- [#12 — Implement events, RSVP and calendar projections](https://github.com/av-evolv/social-chat-platform/issues/12).
+- [#13 — Implement client-side event suggestions](https://github.com/av-evolv/social-chat-platform/issues/13).
+- [#14 — Implement encrypted events and event key distribution](https://github.com/av-evolv/social-chat-platform/issues/14).
+
+## [M4 — Media and shared memories](https://github.com/av-evolv/social-chat-platform/milestone/5)
+
+- [#15 — Implement direct resumable media transfers](https://github.com/av-evolv/social-chat-platform/issues/15).
+- [#16 — Implement client media processing and galleries](https://github.com/av-evolv/social-chat-platform/issues/16).
+- [#17 — Implement memories and local photo-event association](https://github.com/av-evolv/social-chat-platform/issues/17).
+
+## [M5 — Privacy and launch readiness](https://github.com/av-evolv/social-chat-platform/milestone/6)
+
+- [#18 — Implement encrypted recovery and device lifecycle](https://github.com/av-evolv/social-chat-platform/issues/18).
+- [#19 — Harden production operations and replica consistency](https://github.com/av-evolv/social-chat-platform/issues/19).
+- [#20 — Verify native clients and complete launch security review](https://github.com/av-evolv/social-chat-platform/issues/20).
+
+## [M6 — Frictionless participation](https://github.com/av-evolv/social-chat-platform/milestone/7)
+
+- [#21 — Implement browser guests and deep-link onboarding](https://github.com/av-evolv/social-chat-platform/issues/21).
+- [#22 — Add phone identity and privacy-preserving discovery](https://github.com/av-evolv/social-chat-platform/issues/22).
+
+## [M7 — Organiser and enterprise](https://github.com/av-evolv/social-chat-platform/milestone/8)
+
+- [#23 — Implement organisations and organiser event tools](https://github.com/av-evolv/social-chat-platform/issues/23).
+- [#24 — Implement attendee networking and event integrations](https://github.com/av-evolv/social-chat-platform/issues/24).
+- [#25 — Implement organiser billing, branding and analytics](https://github.com/av-evolv/social-chat-platform/issues/25).
+- [#26 — Add sponsors and enterprise administration](https://github.com/av-evolv/social-chat-platform/issues/26).
+
+## [M8 — Future social experiments](https://github.com/av-evolv/social-chat-platform/milestone/9)
+
+- [#27 — Explore disappearing messages and view-once media](https://github.com/av-evolv/social-chat-platform/issues/27).
+- [#28 — Explore BeReal-style shared moments](https://github.com/av-evolv/social-chat-platform/issues/28).
 

@@ -38,9 +38,9 @@ The same underlying graph supports chat, calendar, photo timeline, event, circle
 
 Effective conversation membership combines included circle members, explicit people and included event attendees, minus explicit exclusions. Centralised authorisation must enforce exact access. Sharing an event must not disclose its other private conversations.
 
-## Proposed architecture
+## Selected architecture
 
-Begin with a modular Crystal monolith, PostgreSQL as the durable system of record, S3-compatible object storage for media and background workers for notifications and housekeeping. REST/JSON APIs handle durable operations; WebSockets notify clients of changes. Redis is optional ephemeral infrastructure, never the canonical conversation store.
+The current authoritative stack and roadmap are in [social_chat_platform_plan.md](social_chat_platform_plan.md#55-language-and-framework-decisions-14-september-2026). Use TypeScript throughout: one Expo/React Native frontend for web, iOS and Android, with a separate Node.js 24/Fastify backend and an integrated OAuth2/OIDC provider. Begin with a modular monolith, PostgreSQL as the durable system of record, S3-compatible object storage for media and background workers for notifications and housekeeping. REST/JSON APIs handle durable operations; WebSockets notify clients of changes. Redis is optional ephemeral infrastructure, never the canonical conversation store.
 
 Modules: accounts, circles, conversations, events, media, crypto, sync, notifications and invites.
 
