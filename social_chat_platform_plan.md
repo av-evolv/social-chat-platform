@@ -4004,7 +4004,7 @@ For each selected issue: expand a checkable issue plan, save the detailed implem
 - [#2 — Define domain, authorization and sync contracts](https://github.com/av-evolv/social-chat-platform/issues/2).
 - [#3 — Define encryption, metadata and retention threat model](https://github.com/av-evolv/social-chat-platform/issues/3).
 - [#31 — Coordinate agents with GitHub Projects and dependencies](https://github.com/av-evolv/social-chat-platform/issues/31).
-- [#30 — Resolve Expo Router malformed-query decoder advisory](https://github.com/av-evolv/social-chat-platform/issues/30); blocks externally exposed deep-link/authentication flows and public release.
+- [#30 — Resolve Expo Router malformed-query decoder advisory](https://github.com/av-evolv/social-chat-platform/issues/30): resolved with a scoped CommonJS compatibility build of upstream decoder 0.5.0, bounded malformed-input regressions, bundled navigation-helper checks and web/iOS/Android exports. Remove the local compatibility build once a supported Router dependency update provides the patched decoder; product OAuth/invitation flows still require their own integration and native-device verification.
 
 ## [M1 — Identity and social graph](https://github.com/av-evolv/social-chat-platform/milestone/2)
 
