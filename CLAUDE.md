@@ -2,7 +2,7 @@ We're building a social media chat platform, see: social_chat_platform_plan.md
 
 # Working on this project
 
-Leverage github tools like CI, issues, pull requests and milestones to manage tasks.
+Use GitHub CI, issues, pull requests, milestones and Projects to manage tasks.
 No force pushing, pull request history is important, however once a pull request is complete we should squash merge.
 Keep pull request and git commit messages concise.
 
@@ -57,12 +57,28 @@ The project codename is "Larynx" use this for namespacing code.
 
 ## Task Management
 
-1. **Plan First**: Write the plan to a github issue with checkable items, make sure it's associated with a milestone
+1. **Plan First**: Write the plan to a GitHub issue with checkable items; associate it with its milestone and the Larynx delivery project.
 2. **Verify Plan**: Check in before starting implementation
-3. **Track Progress**: Mark items complete as you go
+3. **Track Progress**: Maintain the issue checklist, native dependencies and project status/ownership as you go.
 4. **Explain Changes**: High-level summary against each commit
 5. **Document Results**: Add review section to the pull request
 6. **Capture Lessons**: Update `tasks/lessons.md` after corrections
+
+### GitHub Projects and multi-agent coordination
+
+Use **Larynx delivery**, an organisation-level GitHub Project linked to this repository, alongside milestones. Its project URL and live setup status are tracked in [#31](https://github.com/av-evolv/social-chat-platform/issues/31). Milestones describe delivery goals; issues are the work items; pull requests hold detailed plans, implementation and verification; the project provides shared status, ownership and timeline views. Do not create parallel draft tasks for existing issues.
+
+- Add each roadmap issue to the project and its milestone. Keep its linked pull request on the issue rather than scheduling a second project item for the same work.
+- Use **Coordination** (table) for ownership and dependencies, **Agent board** for status, and **Timeline** (roadmap) for Start date / Target date grouped by milestone. Show native blocked indicators; inspect issue relationships for the actual prerequisite graph. This is a planning timeline, not an automatic critical-path scheduler.
+- Maintain **Status**: Backlog (unscoped/deferred), Ready (scoped and no unresolved implementation blockers), In progress (claimed and actively worked), Blocked (an active issue cannot advance), In review (PR ready, including CI/review), Done (required verification passed and PR merged/issue completed). An unstarted issue with prerequisites stays Backlog; GitHub's native blocked indicator explains why. Closing a prerequisite does not automatically make its dependents scoped or Ready.
+- Maintain **Agent** with a unique agent/task identifier; GitHub assignee records the accountable human, not agent identity. Shared GitHub accounts must not use assignee alone as a claim. Only the owning agent/coordinator changes another agent's active status or dates.
+- Record real prerequisite relationships with GitHub's native **blocked by / blocking** links, not only checklist text or a free-text custom field. Keep the graph acyclic and avoid redundant/transitive links. Milestone order and a shared technology do not themselves imply a dependency. Split independently deliverable contract/prototype work into subissues instead of blocking every possible parallel activity. Distinguish implementation dependencies from public-release gates; for example #30 gates public auth/deep-link exposure and #20, while isolated OAuth implementation can progress.
+- **Claim before coding:** read the issue, native blockers, project status, existing claim comments and linked/open PRs. Have the coordinator allocate one Ready issue per agent. Post a claim with a unique task ID, branch/worktree, intended scope and PR link when available; reread claims after posting. The earliest unreleased claim (GitHub comment creation order/ID) wins. Only the winner sets Agent / In progress and starts work. Claims are an advisory protocol, not an atomic lock; use one coordinator to serialize assignments when launching agents together. Never steal an apparently stale claim or silently overwrite another agent's ownership.
+- Use a separate `codex/` branch and worktree per independently owned issue. A coordinator may delegate bounded subagents inside its own issue without creating competing claims. Coordinate overlapping files, schema changes and the shared lockfile; recheck ownership before edits, pushes and merge. Save the detailed issue and verification plan in the draft PR before implementation.
+- Set **Start date** when work actually starts and **Target date** only after scoping against available capacity. Targets are revisable forecasts, not promises. Leave unestimated backlog dates and milestone due dates blank; do not invent dates just to fill the Gantt-style chart. When blocked, record the blocking issue or external condition and next action on the issue, then update the forecast when justified. Do not assume moving a roadmap bar reschedules downstream work.
+- Keep project fields current at claim, blocker, review and completion transitions. On pause, explicitly release or hand off the claim and record the next action; the next agent verifies the handoff before starting. After required checks pass and a PR is squash-merged, close the issue, mark Done, release the claim and reassess dependents. Preserve the PR's incremental commits; never force-push.
+
+Use `gh project`/GraphQL for project operations and the native issue-dependency API when the installed CLI lacks dependency flags. Project access requires the `project` OAuth scope (repository scope alone is insufficient); do not bypass an access denial or put credentials in repository files. Project workflows must be explicitly configured and verified before agents rely on automatic status updates. Until then, update status and project membership explicitly.
 
 ---
 
