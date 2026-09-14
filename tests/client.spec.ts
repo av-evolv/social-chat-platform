@@ -19,3 +19,23 @@ test('universal shell boots without runtime errors or horizontal overflow', asyn
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('web navigation remains responsive with encoded and malformed callback-style queries', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const queries = [
+    '?code=a%2Bb%2Fc&state=opaque%2525&scope=openid&scope=events&name=Jos%C3%A9+%F0%9F%98%80',
+    `?state=${'%EA'.repeat(1024)}&code=valid%2Bcode`,
+  ];
+  for (const query of queries) {
+    await page.goto(`/${query}`);
+    await expect(page.getByRole('heading', { name: 'Good things start with a conversation.' })).toBeVisible();
+    await page.waitForLoadState('networkidle');
+    // Hydration installs Router's URL handling. Reload exercises the same URL again.
+    await page.reload();
+    await expect(page).toHaveTitle('Larynx — Your people, together');
+    expect(await page.evaluate(() => new URL(location.href).searchParams.get('code')))
+      .toBe(query === queries[0] ? 'a+b/c' : 'valid+code');
+  }
+  expect(errors).toEqual([]);
+});

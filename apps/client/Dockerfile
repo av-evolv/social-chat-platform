@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/client/package.json apps/client/package.json
 COPY apps/api/package.json apps/api/package.json
+COPY vendor vendor
 RUN npm ci
 COPY apps/client apps/client
 RUN npm run build:web --workspace @larynx/client
