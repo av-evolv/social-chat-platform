@@ -1039,7 +1039,7 @@ This weakens the E2EE guarantee and should not be the default if privacy is a co
 
 ## 5.5 Language and framework decisions (14 September 2026)
 
-The selected stack uses **TypeScript across frontend and backend**, with separate application boundaries and deployments in one repository. These decisions supersede earlier provisional language suggestions. Foundation delivery is tracked by [issue #1](https://github.com/av-evolv/social-chat-platform/issues/1).
+The selected stack uses **TypeScript across frontend and backend**, with separate application boundaries and deployments in one repository. A narrow Rust cryptographic core is the deliberate exception, shared through web WASM and native module adapters. These decisions supersede earlier provisional language suggestions. Foundation delivery is tracked by [issue #1](https://github.com/av-evolv/social-chat-platform/issues/1).
 
 | Area | Decision | Reason and boundary |
 |---|---|---|
@@ -1050,6 +1050,7 @@ The selected stack uses **TypeScript across frontend and backend**, with separat
 | Database | PostgreSQL 18, `pg`, SQL migrations | Preserve direct control over relational authorization, transactions, read replicas, `tsvector` and outboxes. |
 | Native local storage | `expo-sqlite`, with SQLCipher for private persistent data and SecureStore for protected keys | Database encryption, device key protection and message E2EE are separate concerns. |
 | Browser local storage | IndexedDB through Dexie, behind the same client repository interface | Expo SQLite web support is currently alpha and requires cross-origin isolation; avoid making it the browser foundation. Sensitive persisted values require application encryption and an explicit key-lifecycle design. |
+| Messaging cryptography | OpenMLS 0.9.0 Rust core; web WASM and native module adapters | [M0 compatibility spike](docs/security/openmls-spike.md) passes host/Chromium execution and mobile target checks; full Expo/Hermes/device integration and security review remain #10/#20 gates. |
 | Object storage | S3-compatible API, AWS SDK v3; Garage 2.3 in local development and CI | Signed direct upload/download, resumable multipart and transactional deletion outbox. |
 | Client AI | Shared TypeScript suggestion pipeline; benchmark ONNX Runtime Web and ONNX Runtime React Native adapters | Start with local deterministic extraction; optional models must prove device compatibility, accuracy, memory and battery costs. |
 | Workspace and delivery | npm workspaces, locked dependencies, Docker Compose and GitHub Actions | One repository with distinct `apps/client` and `apps/api`; add shared packages when there is actual shared code. |
@@ -1059,7 +1060,7 @@ Pin compatible patch versions in the lockfile and align React/React Native packa
 
 ### Frontend sharing policy
 
-`apps/client` is the product frontend for mobile and desktop browsers, iOS and Android. Share most UI and all suitable business logic; isolate storage, key handling, notifications, camera/media, background tasks and inference in `.web.ts` / `.native.ts` adapters. Small Swift/Kotlin modules are allowed when native capabilities require them. Native modules use Expo development builds. No separate web product implementation or desktop wrapper is planned initially; the responsive web app serves desktop users.
+`apps/client` is the product frontend for mobile and desktop browsers, iOS and Android. Share most UI and all suitable business logic; isolate storage, key handling, notifications, camera/media, background tasks and inference in `.web.ts` / `.native.ts` adapters. Small Swift/Kotlin modules are allowed when native capabilities require them; the MLS protocol implementation remains in the shared Rust core. Native modules use Expo development builds. No separate web product implementation or desktop wrapper is planned initially; the responsive web app serves desktop users.
 
 A public marketing site or document-heavy organiser content can become a separate deployment later if requirements justify it. Do not add Next.js, a second frontend framework, a heavyweight monorepo orchestrator or an ORM merely for the scaffold.
 
@@ -1301,7 +1302,7 @@ Each conversation has an exact authorized device set.
 
 ## 7.2 Group messaging
 
-A modern approach is **Messaging Layer Security (MLS)** for group key agreement and membership changes.
+Use **Messaging Layer Security (MLS)** for group key agreement and membership changes, with OpenMLS 0.9.0 selected for the next integration stage. The [security contract](docs/security/threat-model.md) and [reproducible compatibility report](docs/security/openmls-spike.md), tracked in [#3](https://github.com/av-evolv/social-chat-platform/issues/3), define the boundary. Independent upstream review is not an audit of our provider, adapters or application. No product encryption is enabled by the foundation spike.
 
 Conceptually:
 
@@ -1315,7 +1316,7 @@ Epoch keys
 Encrypted messages
 ```
 
-Adding/removing members advances the group epoch.
+Adding/removing device members advances the group epoch. Application roster generations are separate from MLS epochs. Membership changes close the application-send gate until the exact authorized device roster is cryptographically reconciled; stale senders must resync. Server API revocation takes effect immediately on the primary.
 
 Benefits:
 
@@ -1351,7 +1352,7 @@ Device
   revoked_at
 ```
 
-Conversation membership ultimately authorizes **devices**, not abstract users.
+Conversation membership ultimately authorizes **devices**, not abstract users. Admit a new device only after authenticated account control and trusted-device approval (or a visible identity reset). New participants receive history from accepted cryptographic admission onward; rejoin does not grant absence-gap or old-epoch keys. Guest devices use the same model and scoped OAuth access; invitation possession alone grants no keys.
 
 ---
 
@@ -1371,7 +1372,7 @@ random Event Content Key
 encrypted event document
 ```
 
-The event key can then be wrapped/distributed to each authorized audience.
+The event key can then be wrapped/distributed to each authorized audience. Event audience is independent of conversation association. A conversation-wide envelope is allowed only when every receiving device is authorized for the event; otherwise use explicit authorized-device delivery. Rotate keys for future document revisions on audience removal. New attendees receive the explicitly shared current revision, not all historical revisions.
 
 Conceptually:
 
@@ -1422,7 +1423,7 @@ or:
 ChaCha20-Poly1305
 ```
 
-depending on implementation/platform requirements.
+depending on implementation/platform requirements. The concrete reviewed versioned streaming/chunked format is a [#15](https://github.com/av-evolv/social-chat-platform/issues/15) implementation gate; multipart transport is not an encryption construction. Authenticate ordering and final length, never reuse nonces on retries, and do not expose unauthenticated partial plaintext.
 
 Do not derive all media keys directly from a long-lived circle key.
 
@@ -1430,9 +1431,9 @@ Do not derive all media keys directly from a long-lived circle key.
 
 ## 7.6 Metadata privacy
 
-Decide deliberately what the server can know.
+Follow the explicit [metadata allowlist](docs/security/threat-model.md#metadata-policy). Server-visible membership/audience edges, minimal RSVP status, routing IDs, ciphertext sizes, timestamps and expiry deadlines support authorization/delivery and expose traffic/social metadata. Private event times, titles, locations, detailed RSVP answers and message/media content stay encrypted. Search, calendar ranges, private reminders and AI projections run on clients.
 
-Possible server-visible fields:
+Examples of server-visible fields:
 
 ```text
 conversation_id
@@ -1442,7 +1443,7 @@ message timestamp
 event object id
 ```
 
-Potentially encrypted fields:
+Encrypted private fields:
 
 ```text
 conversation title
@@ -2096,50 +2097,31 @@ memory resurfacing
 
 ---
 
-# 19. Architectural Decisions to Make Early
+# 19. Foundation Security Decisions
 
-The following choices will have large downstream effects and should be explicitly documented.
+These M0 decisions are recorded in the [security contract](docs/security/threat-model.md) and [OpenMLS compatibility report](docs/security/openmls-spike.md), tracked by [#3](https://github.com/av-evolv/social-chat-platform/issues/3). They specify required behavior rather than claiming the current shell implements it.
 
 ## 19.1 History for newly added members
 
-When a user joins a conversation, can they see:
-
-```text
-all history
-history since invite
-history since acceptance
-explicitly shared history only
-```
-
-This has cryptographic consequences.
+History begins at accepted cryptographic admission, not invitation or account creation. Rejoin creates a new admission interval without absence-gap or retrospective keys. Explicit older-history transfer is a separate visible grant and is deferred; adding a device must not bypass participant history limits.
 
 ## 19.2 Event visibility vs conversation visibility
 
-An attendee may be able to see the event without being able to see every conversation associated with it.
-
-This should be supported from day one.
+Event audiences are independent. Event/conversation association grants neither audience access, and event keys must never reach a conversation device outside the event audience. Audience removals rotate future event revisions; old plaintext cannot be recalled. Tracked by #12/#14.
 
 ## 19.3 Guest cryptographic participation
 
-Decide whether web guests participate fully in E2EE or whether guest mode initially uses a reduced trust model.
-
-Prefer eventually making guest devices real cryptographic devices.
+Guests are real verified participants with scoped OAuth grants and admitted cryptographic devices. Invitation bearer tokens alone confer no access. Use session-only browser secrets until protected persistence/recovery exists; no plaintext server fallback. Registration preserves participant/authorship and does not silently widen history. Tracked by #5/#10/#21.
 
 ## 19.4 Metadata exposure
 
-Document exactly which metadata the service itself can see.
+Use the allowlist in the security contract: service-visible identity/authorization/attendance status and routing/storage metadata; encrypted private messages, event details/times and sensitive media metadata. Local indexes power calendar, search and event AI. Opaque identifiers and ciphertext sizes do not provide anonymity.
 
-## 19.5 Account recovery
+## 19.5 Account recovery and retention
 
-Traditional password resets and strict E2EE do not automatically coexist.
+Login recovery never implies E2EE key recovery. Trusted-device approval or an explicitly encrypted retained-history backup protected by a high-entropy user-held recovery secret may restore authorized history; total secret loss means visible identity reset and inaccessible history loss. Do not silently restore stale live ratchets. #18 selects and reviews the concrete backup format.
 
-Choose between mechanisms such as:
-
-- recovery key;
-- trusted existing device;
-- encrypted key backup protected by a recovery secret;
-- social recovery;
-- deliberate loss of inaccessible encrypted history.
+MVP retention is persistent content until explicit deletion/policy. SQL tombstones and a transactional deletion outbox prevent new access and drive retryable blob cleanup; issued signed URLs have bounded residual validity. #19 must verify backup/restore deletion behavior. Future disappearing/view-once features (#27) require multi-device expiry and local key/cache/index cleanup and cannot prevent screenshots, offline copies or malicious recipients.
 
 ---
 
