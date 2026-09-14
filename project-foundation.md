@@ -1,6 +1,6 @@
 # Social chat platform · project foundation
 
-Condensed from the supplied project plan. This document records the product context for the brand work; no backend, authentication, encryption or messaging service is implemented in this repository yet.
+Condensed from the supplied project plan. This document records the product context for the brand work; the repository now has a universal client shell and operational backend foundation. Authentication, encryption and messaging product features remain roadmap work.
 
 ## Product vision
 
@@ -70,12 +70,14 @@ Start with explicit invitations. Do not upload raw address books or describe pla
 
 ## Execution phases
 
+This condensed phase list is historical context; section 45 of the project plan and its GitHub milestones are the active delivery sequence.
+
 0. Domain model, threat model, API conventions, cryptographic architecture, schema and sync protocol.
 1. Backend foundations: identity, devices, circles, conversations, invitations, change log and realtime notification.
-2. Primary mobile client: chat, membership, notifications, offline cache and sync.
+2. Universal web/iOS/Android client: chat, membership, notifications, offline cache and sync.
 3. Seamless onboarding: verification, passkeys, deep links, guests, identity claiming and linking.
 4. Conversation graph: multiple circles, include/exclude rules, topic creation and subscriptions.
-5. Events: create from chat, RSVP, cross-circle sharing, updates, reminders and calendar view.
+5. Events: create from chat, RSVP, cross-circle sharing, updates, reminders, calendar view and initial local event suggestions.
 6. Media: encrypted object uploads, derivatives, linking and galleries.
 7. E2EE: device verification, group epochs, encrypted events/media, multi-device keys and recovery; external review before launch.
 8. Calendar and memories: alternate views of the same underlying objects.

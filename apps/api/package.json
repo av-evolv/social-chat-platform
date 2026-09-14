@@ -1,0 +1,24 @@
+{
+  "name": "@larynx/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "fastify": "5.12.4",
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.4",
+    "@types/pg": "8.23.1",
+    "tsx": "4.23.13",
+    "typescript": "6.0.3"
+  }
+}

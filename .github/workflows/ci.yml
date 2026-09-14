@@ -1,0 +1,59 @@
+name: Platform CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Start platform
+        run: |
+          cp .env.example .env
+          docker compose up --build --detach --wait --wait-timeout 180
+      - run: npm run test:infra
+      - run: npm run test:web
+      - name: Verify database outage and recovery
+        run: |
+          docker compose stop postgres
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:3000/health/ready)" = 503
+          curl --fail http://127.0.0.1:3000/health/live
+          docker compose start postgres
+          docker compose up --detach --wait --wait-timeout 90 api
+          curl --fail http://127.0.0.1:3000/health/ready
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 150
+      - name: Browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-diagnostics
+          path: test-results/
+          if-no-files-found: ignore
+      - name: Stop CI infrastructure
+        if: always()
+        run: docker compose down --volumes
