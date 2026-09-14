@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View, ScrollView, useWindowDimensions } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Platform, StyleSheet, Text, View, ScrollView, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const colors = {
@@ -19,7 +20,14 @@ const foundations = [
 
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
-  const wide = width >= 820;
+  const [layoutReady, setLayoutReady] = useState(Platform.OS !== 'web');
+
+  useEffect(() => {
+    setLayoutReady(true);
+  }, []);
+
+  // Match the compact static HTML during hydration before using browser dimensions.
+  const wide = layoutReady && width >= 820;
 
   return (
     <SafeAreaView style={styles.safeArea}>
