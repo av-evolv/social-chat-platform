@@ -1,0 +1,38 @@
+{
+  "name": "@larynx/workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11 <12"
+  },
+  "packageManager": "npm@11.19.1",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:client": "npm run dev --workspace @larynx/client",
+    "dev:web": "npm run web --workspace @larynx/client",
+    "dev:api": "node --env-file=.env --import tsx --watch apps/api/src/server.ts",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspace @larynx/api && npm run build --workspace @larynx/client",
+    "test:infra": "node --env-file=.env scripts/smoke-infra.mjs",
+    "test:web": "node --env-file=.env node_modules/@playwright/test/cli.js test",
+    "brand": "node server.mjs"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "3.1131.0",
+    "@aws-sdk/s3-request-presigner": "3.1131.0",
+    "@playwright/test": "1.63.0"
+  },
+  "overrides": {
+    "react-native-worklets": "0.10.1",
+    "react-native-reanimated": "4.5.1",
+    "react-native-gesture-handler": "2.32.0",
+    "xcode@3.0.1": {
+      "uuid": "11.1.1"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+.git
+node_modules
+**/node_modules
+**/dist
+**/.expo
+.env
+.env.*
+output
+.playwright-cli
+test-results
+playwright-report

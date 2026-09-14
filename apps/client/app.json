@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Larynx",
+    "slug": "larynx",
+    "scheme": "larynx",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.larynx.client"
+    },
+    "android": {
+      "package": "dev.larynx.client"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": ["expo-router"]
+  }
+}

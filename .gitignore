@@ -6,3 +6,9 @@ node_modules/
 !.env.example
 output/playwright/*.log
 output/playwright/*.yml
+.expo/
+dist/
+coverage/
+test-results/
+playwright-report/
+*.tsbuildinfo

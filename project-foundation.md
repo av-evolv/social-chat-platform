@@ -1,6 +1,6 @@
 # Social chat platform · project foundation
 
-Condensed from the supplied project plan. This document records the product context for the brand work; no backend, authentication, encryption or messaging service is implemented in this repository yet.
+Condensed from the supplied project plan. This document records the product context for the brand work; the repository now has a universal client shell and operational backend foundation. Authentication, encryption and messaging product features remain roadmap work.
 
 ## Product vision
 
@@ -38,9 +38,9 @@ The same underlying graph supports chat, calendar, photo timeline, event, circle
 
 Effective conversation membership combines included circle members, explicit people and included event attendees, minus explicit exclusions. Centralised authorisation must enforce exact access. Sharing an event must not disclose its other private conversations.
 
-## Proposed architecture
+## Selected architecture
 
-Begin with a modular Crystal monolith, PostgreSQL as the durable system of record, S3-compatible object storage for media and background workers for notifications and housekeeping. REST/JSON APIs handle durable operations; WebSockets notify clients of changes. Redis is optional ephemeral infrastructure, never the canonical conversation store.
+The current authoritative stack and roadmap are in [social_chat_platform_plan.md](social_chat_platform_plan.md#55-language-and-framework-decisions-14-september-2026). Use TypeScript throughout: one Expo/React Native frontend for web, iOS and Android, with a separate Node.js 24/Fastify backend and an integrated OAuth2/OIDC provider. Begin with a modular monolith, PostgreSQL as the durable system of record, S3-compatible object storage for media and background workers for notifications and housekeeping. REST/JSON APIs handle durable operations; WebSockets notify clients of changes. Redis is optional ephemeral infrastructure, never the canonical conversation store.
 
 Modules: accounts, circles, conversations, events, media, crypto, sync, notifications and invites.
 
@@ -70,12 +70,14 @@ Start with explicit invitations. Do not upload raw address books or describe pla
 
 ## Execution phases
 
+This condensed phase list is historical context; section 45 of the project plan and its GitHub milestones are the active delivery sequence.
+
 0. Domain model, threat model, API conventions, cryptographic architecture, schema and sync protocol.
 1. Backend foundations: identity, devices, circles, conversations, invitations, change log and realtime notification.
-2. Primary mobile client: chat, membership, notifications, offline cache and sync.
+2. Universal web/iOS/Android client: chat, membership, notifications, offline cache and sync.
 3. Seamless onboarding: verification, passkeys, deep links, guests, identity claiming and linking.
 4. Conversation graph: multiple circles, include/exclude rules, topic creation and subscriptions.
-5. Events: create from chat, RSVP, cross-circle sharing, updates, reminders and calendar view.
+5. Events: create from chat, RSVP, cross-circle sharing, updates, reminders, calendar view and initial local event suggestions.
 6. Media: encrypted object uploads, derivatives, linking and galleries.
 7. E2EE: device verification, group epochs, encrypted events/media, multi-device keys and recovery; external review before launch.
 8. Calendar and memories: alternate views of the same underlying objects.
