@@ -1,0 +1,14 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Larynx isolated MLS probe</title>
+<pre id="result">Running isolated MLS assertions…</pre>
+<script type="module">
+  import init, { run_probe } from './pkg/larynx_security_spike.js';
+  try {
+    await init();
+    document.querySelector('#result').textContent = run_probe();
+  } catch (error) {
+    document.querySelector('#result').textContent = `FAIL: ${error}`;
+    throw error;
+  }
+</script>
