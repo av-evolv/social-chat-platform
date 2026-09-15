@@ -2,9 +2,9 @@
 
 A private social platform where chat connects people, plans and shared memories. The product frontend uses one TypeScript/Expo codebase for web, iOS and Android; the separate backend uses TypeScript, Node.js 24 and Fastify.
 
-The foundation provides a universal development shell, PostgreSQL/Garage Docker Compose and CI. M1 adds a persisted OAuth2/OIDC provider and scoped API authorization. Account verification and frontend login/callback integration remain #5; until then interactive authentication fails closed. Conversations, events and production E2EE remain roadmap work.
+The foundation provides a universal development shell, PostgreSQL/Garage Docker Compose and CI. M1 adds a persisted OAuth2/OIDC provider and scoped API authorization. Verified email/passkey accounts, recovery, shared client login and device management are implemented in #5. Conversations, events and production E2EE remain roadmap work.
 
-The [project plan](social_chat_platform_plan.md) records the architecture, client AI and future social features. [GitHub milestones](https://github.com/av-evolv/social-chat-platform/milestones) and [issues](https://github.com/av-evolv/social-chat-platform/issues) track delivery. M0 is complete; [#4](https://github.com/av-evolv/social-chat-platform/issues/4) starts M1. See the [OAuth setup and security boundary](docs/oauth-provider.md).
+The [project plan](social_chat_platform_plan.md) records the architecture, client AI and future social features. [GitHub milestones](https://github.com/av-evolv/social-chat-platform/milestones) and [issues](https://github.com/av-evolv/social-chat-platform/issues) track delivery. M0 is complete; [#4](https://github.com/av-evolv/social-chat-platform/issues/4) and [#5](https://github.com/av-evolv/social-chat-platform/issues/5) provide M1 authentication. See the [OAuth setup and security boundary](docs/oauth-provider.md).
 
 ## Run locally
 
@@ -19,15 +19,15 @@ docker compose up --build --detach --wait
 npm run test:infra
 ```
 
-Open the client at [127.0.0.1:8088](http://127.0.0.1:8088). Operational probes are [liveness](http://127.0.0.1:3000/health/live) and [readiness](http://127.0.0.1:3000/health/ready). Readiness returns 503 while PostgreSQL is unavailable; liveness remains 200 while the API process is running. OAuth discovery is at [/oidc/.well-known/openid-configuration](http://127.0.0.1:3000/oidc/.well-known/openid-configuration); `/v1/session` requires a valid audience-bound token with `profile:read`. Signing keys persist in ignored `.env.oauth`.
+Open the client at [127.0.0.1:8088](http://127.0.0.1:8088). Operational probes are [liveness](http://127.0.0.1:3000/health/live) and [readiness](http://127.0.0.1:3000/health/ready). Readiness returns 503 while PostgreSQL is unavailable; liveness remains 200 while the API process is running. OAuth discovery is at [/oidc/.well-known/openid-configuration](http://localhost:3000/oidc/.well-known/openid-configuration); `/v1/session` requires a valid audience-bound token with `profile:read`. Signing keys persist in ignored `.env.oauth`.
 
-Compose includes PostgreSQL 18 and Garage 2.3, with persistent named volumes. It binds published services to loopback and uses development credentials from `.env.example`; it is a local/CI configuration. Garage automatically initializes its single-node layout and private bucket. `test:infra` configures that development bucket's CORS for `CLIENT_ORIGIN` and removes its own uniquely named test objects afterward. It does not erase other data.
+Compose includes PostgreSQL 18, Garage 2.3 and local Mailpit email capture, with persistent named volumes. It binds published services to loopback and uses development credentials from `.env.example`; it is a local/CI configuration. Garage automatically initializes its single-node layout and private bucket. `test:infra` configures that development bucket's CORS for `CLIENT_ORIGIN` and removes its own uniquely named test objects afterward. It does not erase other data.
 
 For fast client/backend iteration, run only the infrastructure in Compose and start each app in a separate terminal:
 
 ```sh
 docker compose stop api client
-docker compose up --detach --wait postgres garage
+docker compose up --detach --wait postgres garage mailpit
 npm run dev:api
 ```
 

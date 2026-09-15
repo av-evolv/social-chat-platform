@@ -25,5 +25,5 @@ try {
   };
   // Generated values contain no single quotes/newlines; quote JSON for dotenv/Compose.
   await writeFile(file, Object.entries(fields).map(([name, value]) => `${name}='${value}'`).join('\n') + '\n', { mode: 0o600, flag: 'wx' });
-  console.log('Created local-only .env.oauth with persistent signing keys. Account verification remains unavailable until #5.');
+  console.log('Created local-only .env.oauth with persistent signing keys. Run npm run accounts:setup before starting the account service.');
 }
