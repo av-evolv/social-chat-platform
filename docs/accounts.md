@@ -12,7 +12,7 @@ The ignored `.env.accounts` file contains independent 32-byte encryption and loo
 
 ## Identity and passkey policy
 
-PostgreSQL18 creates UUIDv7 account, participant, device and session IDs. Historical participant IDs survive account recovery. The initial schema supports one verified email per account; phone numbers, additional identity linking and guest claim operations need subsequent migrations and #7's explicit claim policy. No automatic account merge is implemented. #6 adds the alias mapping table and an in-transaction audience invalidation hook; #7 owns verified alias writes and claim policy.
+PostgreSQL18 creates UUIDv7 account, participant, device and session IDs. Historical participant IDs survive account recovery. The initial schema supports one verified email per account; phone numbers, additional identity linking and guest claim operations need subsequent migrations and #7's explicit claim policy. No automatic account merge is implemented. #6 adds the alias mapping table and an in-transaction audience invalidation hook; #7 implements verified invited-participant alias claims using an email already owned by the signed-in account; see [invitations.md](invitations.md). Additional recovery-email linking requires the issuer-hosted recent-passkey step-up tracked in #45. Delegated profile:write tokens cannot add recovery channels.
 
 Email accepts conservative ASCII dot-atom addresses, trims surrounding whitespace, preserves local-part case/dots/plus tags and lowercases the domain. It does not apply Gmail-style folding globally. Values are encrypted with AES-256-GCM and a versioned purpose binding; lookup uses a separate HMAC key with a unique index. Email is not a primary key or an anonymous identifier.
 
