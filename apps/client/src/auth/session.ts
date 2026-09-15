@@ -15,7 +15,7 @@ const pendingKey = 'larynx.oauth.pending';
 const tokenKey = 'larynx.oauth.tokens';
 interface Tokens { accessToken: string; refreshToken?: string; expiresAt: number }
 interface Discovery { authorizationEndpoint: string; tokenEndpoint: string }
-export interface Session { accountId: string; participantId: string; clientId: string; deviceId: string; scopes: string[] }
+export interface Session { accountId: string; participantId: string; clientId: string; deviceId: string; sessionId: string; scopes: string[] }
 export interface Account { locale: Locale | null; emails: string[]; accountId: string; participantId: string; recoveryGeneration: number; devices: { id: string; name: string; createdAt: string; lastSeenAt: string; revokedAt: string | null; cryptoState: 'pending' }[] }
 let tokens: Tokens | undefined;
 let generation = 0;
@@ -24,12 +24,32 @@ let restorePending: Promise<void> | undefined;
 let callbackPending: Promise<void> | undefined;
 let storageQueue = Promise.resolve();
 let signInPending = false;
+const sessionListeners = new Set<() => void>();
+export function getSessionGeneration(): number { return generation; }
+export function subscribeSession(listener: () => void): () => void {
+  sessionListeners.add(listener);
+  return () => { sessionListeners.delete(listener); };
+}
+function notifySession(): void {
+  for (const listener of sessionListeners) {
+    try { listener(); } catch { /* A subscriber must not prevent session invalidation. */ }
+  }
+}
+function assertCurrent(expected: number, signal?: AbortSignal): void {
+  if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
+  if (expected !== generation) throw new LocalizedError('common.error.signedOut');
+}
 
-async function request(url: string, init: RequestInit = {}): Promise<Response> {
+async function request<T = Response>(url: string, init: RequestInit = {}, consume: (response: Response) => Promise<T> = async response => response as unknown as T): Promise<T> {
   const controller = new AbortController();
+  const abort = () => controller.abort(init.signal?.reason);
+  if (init.signal?.aborted) abort();
+  else init.signal?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(() => controller.abort(), 30_000);
-  try { return await fetch(url, { ...init, headers: { 'Accept-Language': getLocale(), ...init.headers }, signal: controller.signal, credentials: 'omit', cache: 'no-store' }); }
-  finally { clearTimeout(timer); }
+  try {
+    if (controller.signal.aborted) throw controller.signal.reason ?? new DOMException('Aborted', 'AbortError');
+    return await consume(await fetch(url, { ...init, headers: { 'Accept-Language': getLocale(), ...init.headers }, signal: controller.signal, credentials: 'omit', cache: 'no-store' })); }
+  finally { clearTimeout(timer); init.signal?.removeEventListener('abort', abort); }
 }
 
 async function discovery(): Promise<Discovery> {
@@ -60,6 +80,7 @@ function persist(next: Tokens | undefined, expected: number): Promise<void> {
 export async function clearSession(): Promise<void> {
   generation += 1;
   tokens = undefined;
+  notifySession();
   await persist(undefined, generation);
 }
 
@@ -73,6 +94,8 @@ export async function restoreSession(): Promise<void> {
       const saved = JSON.parse(stored);
       if (saved.issuer !== issuer || saved.clientId !== clientId || typeof saved.accessToken !== 'string' || typeof saved.expiresAt !== 'number' || (saved.refreshToken !== undefined && typeof saved.refreshToken !== 'string')) throw new Error('Invalid saved session');
       tokens = saved;
+      generation += 1;
+      notifySession();
     } catch { await clearSession(); }
   })();
   await restorePending;
@@ -97,8 +120,23 @@ async function exchange(url: string, flow: PendingFlow): Promise<void> {
   const confirmed = await request(`${apiOrigin}/v1/session/confirm`, { method: 'POST', headers: { Authorization: `Bearer ${result.value.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: result.idToken, nonce: flow.nonce }) });
   if (!confirmed.ok) throw new LocalizedError('common.error.identityConfirmation');
   if (expected !== generation) throw new LocalizedError('common.error.cancelled');
-  await persist(result.value, expected);
-  if (expected === generation) { tokens = result.value; await restoreAccountLocale(); }
+  generation += 1;
+  const installed = generation;
+  tokens = undefined;
+  notifySession();
+  try { await persist(result.value, installed); }
+  catch (error) {
+    if (installed === generation) {
+      // Purge a previous saved grant after a failed replacement, without touching
+      // a newer session that may have been established during the storage write.
+      await persist(undefined, installed).catch(() => {});
+    }
+    throw error;
+  }
+  if (installed !== generation) throw new LocalizedError('common.error.cancelled');
+  tokens = result.value;
+  notifySession();
+  await restoreAccountLocale();
 }
 
 export async function signIn(): Promise<void> {
@@ -173,26 +211,33 @@ export class AccountRequestError extends LocalizedError {
   constructor(public readonly status: number, public readonly code: string | undefined, message: string) { super(message); }
 }
 
-export async function accountRequest<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+export async function accountRequest<T>(path: string, method = 'GET', body?: unknown, options: { signal?: AbortSignal } = {}): Promise<T> {
+  await restoreSession();
   const expected = generation;
+  assertCurrent(expected, options.signal);
   await initializeLocale();
   const localeVersion = getLocaleVersion();
   const current = await access();
-  if (expected !== generation) throw new LocalizedError('common.error.signedOut');
-  const response = await request(`${apiOrigin}${path}`, { method, headers: { Authorization: `Bearer ${current.accessToken}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-  if (response.status === 401) { if (expected === generation) await clearSession(); throw new LocalizedError('common.error.ended'); }
-  if (!response.ok) {
-    const detail = await response.json().catch(() => undefined);
-    const codes = ['invitation_unavailable','invalid_email','rate_limited','too_many_requests','revision_conflict','last_owner','crypto_not_ready','idempotency_conflict'];
-    const code = typeof detail?.error === 'string' ? detail.error : undefined;
-    const key = code && codes.includes(code) ? `common.error.${code}` : response.status === 404 ? 'common.error.notFound' : response.status === 409 ? 'common.error.conflict' : response.status === 403 ? 'common.error.forbidden' : response.status === 400 ? 'common.error.invalidRequest' : 'common.error.unavailable';
-    throw new AccountRequestError(response.status,code,key);
-  }
-  const result = response.status === 204 ? undefined : await response.json();
-  if (path === '/v1/account' && method === 'GET' && expected === generation) {
-    try { await applyAccountLocale(result?.locale,localeVersion); } catch { /* Keep the in-memory preference when device storage is unavailable. */ }
-  }
-  return result as T;
+  assertCurrent(expected, options.signal);
+  return request(`${apiOrigin}${path}`, { signal: options.signal, method, headers: { Authorization: `Bearer ${current.accessToken}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, async response => {
+    assertCurrent(expected, options.signal);
+    if (response.status === 401) { if (expected === generation) await clearSession(); throw new LocalizedError('common.error.ended'); }
+    if (!response.ok) {
+      const detail = await response.json().catch(() => undefined);
+      assertCurrent(expected, options.signal);
+      const codes = ['invitation_unavailable','invalid_email','rate_limited','too_many_requests','revision_conflict','last_owner','crypto_not_ready','idempotency_conflict'];
+      const code = typeof detail?.error === 'string' ? detail.error : undefined;
+      const key = code && codes.includes(code) ? `common.error.${code}` : response.status === 404 ? 'common.error.notFound' : response.status === 409 ? 'common.error.conflict' : response.status === 403 ? 'common.error.forbidden' : response.status === 400 ? 'common.error.invalidRequest' : 'common.error.unavailable';
+      throw new AccountRequestError(response.status,code,key);
+    }
+    const result = response.status === 204 ? undefined : await response.json();
+    assertCurrent(expected, options.signal);
+    if (path === '/v1/account' && method === 'GET' && expected === generation) {
+      try { await applyAccountLocale(result?.locale,localeVersion); } catch { /* Keep the in-memory preference when device storage is unavailable. */ }
+    }
+    assertCurrent(expected, options.signal);
+    return result as T;
+  });
 }
 
 export function hasSession(): boolean { return Boolean(tokens); }
