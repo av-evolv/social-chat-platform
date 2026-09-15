@@ -16,6 +16,7 @@
   "dependencies": {
     "@fastify/cors": "11.3.0",
     "@fastify/middie": "9.3.4",
+    "@fastify/rate-limit": "11.2.0",
     "@simplewebauthn/browser": "14.0.0",
     "@simplewebauthn/server": "14.0.2",
     "fastify": "5.12.4",

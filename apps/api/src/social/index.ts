@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import rateLimit from '@fastify/rate-limit';
 import { OAuthAccessError, type createOAuth } from '../oauth/index.js';
 import type { SocialStore } from './store.js';
 import { SocialError, type Role, type Source, type SocialActor } from './types.js';
@@ -22,8 +23,16 @@ function sources(value: unknown): Source[] {
 const role = (value: unknown): Role => ['OWNER','ADMIN','MEMBER'].includes(String(value)) ? value as Role : invalid();
 
 export async function mountSocial(app: FastifyInstance, oauth: OAuth, store: SocialStore) {
+  await app.register(rateLimit, { global: false, max: 120, timeWindow: 60_000, cache: 5000 });
+  // Reuse one limiter so changing social routes cannot reset an IP's budget.
+  // Fastify's request.ip honors forwarding headers only with trusted proxies.
+  const socialRateLimit = app.rateLimit();
   function route(method: 'GET' | 'POST', path: string, scope: string, fields: string[], handler: (actor: SocialActor, id: string, body: Record<string, unknown>) => Promise<unknown>) {
-    app.route({ method, url: `/v1/social/${path}`, bodyLimit: 32_768, handler: async (request: FastifyRequest, reply) => {
+    app.route({ method, url: `/v1/social/${path}`, bodyLimit: 32_768, onRequest: socialRateLimit,
+      errorHandler(error, _request, reply) {
+        if (error.statusCode === 429) return reply.header('cache-control','no-store').code(429).send({ error:'too_many_requests' });
+        return reply.send(error);
+      }, handler: async (request: FastifyRequest, reply) => {
       reply.header('cache-control','no-store');
       try {
         const actor = await oauth.authorize(request.raw, [scope]);

@@ -166,6 +166,7 @@ export async function accountRequest<T>(path: string, method = 'GET', body?: unk
   if (!response.ok) {
     const detail = await response.json().catch(() => undefined);
     const messages: Record<string, string> = {
+      too_many_requests: 'Too many requests. Wait a minute and try again.',
       revision_conflict: 'This has changed since you opened it. Review the refreshed details and try again.',
       last_owner: 'Choose another owner before leaving or removing this owner.',
       crypto_not_ready: 'Encryption is not ready yet. Messages remain unavailable.',
