@@ -1068,7 +1068,7 @@ A public marketing site or document-heavy organiser content can become a separat
 
 ### OAuth and API boundary
 
-M1 [#4](https://github.com/av-evolv/social-chat-platform/issues/4) implements the [persisted provider and scoped resource boundary](docs/oauth-provider.md): code-only PKCE, explicit consent, opaque audience-bound tokens, refresh rotation/replay rejection and live account/device/grant checks. Operator-reviewed client configuration is the initial admission policy. Production account verification and client login/callback integration remain [#5](https://github.com/av-evolv/social-chat-platform/issues/5); unconfigured authentication fails closed.
+M1 [#4](https://github.com/av-evolv/social-chat-platform/issues/4) implements the [persisted provider and scoped resource boundary](docs/oauth-provider.md): code-only PKCE, explicit consent, opaque audience-bound tokens, refresh rotation/replay rejection and live account/device/grant checks. Operator-reviewed client configuration is the initial admission policy. Account verification, passkeys and shared client login/callback integration are implemented in [#5](https://github.com/av-evolv/social-chat-platform/issues/5), with current-primary device/session revocation.
 
 All product API access requires OAuth2 access tokens with explicit application identity, audience and scopes, followed by object-level authorization. First-party clients follow the same controls as third-party clients. Public clients use authorization code with PKCE; browser/native redirects, consent, refresh rotation, revocation and developer registration require explicit policy. Use PostgreSQL provider adapters rather than production in-memory sessions. Long-lived bearer tokens must not be placed in URLs; realtime connections use a suitably scoped short-lived ticket or an authenticated handshake.
 
@@ -1086,9 +1086,26 @@ Expo fits the TypeScript and mobile-media requirements better than a separate na
 
 ---
 
+
+## 5.6 Interface languages and localization
+
+Larynx will support **English (`en`) and French (`fr`) initially** across the shared web, iOS and Android frontends. Delivery is tracked in [#42](https://github.com/av-evolv/social-chat-platform/issues/42).
+
+- Maintain shared translation catalogs with interpolation and locale-aware pluralization. Localize navigation, account/passkey/consent/recovery screens, validation, accessibility labels, notifications and transactional verification emails. Keep backend error codes stable and translate their user-facing messages.
+- Choose the initial language from the browser/device preference, provide an explicit language selector, and persist the user's choice. Carry locale through unauthenticated signup and OAuth; use English when the requested language is unsupported or a translation is missing.
+- Format dates, times and numbers for the selected locale while preserving each event's timezone and canonical API/storage values. Test French accents, plural forms and longer text on all screen sizes.
+- User-authored conversations, messages and event content retain their original language. Automatic translation is separate future scope.
+
+The initial account implementation in [#5](https://github.com/av-evolv/social-chat-platform/issues/5) creates the surfaces that #42 will localize; English and French coverage is required before public launch. Detailed library selection, catalog structure and verification belong in #42's implementation PR.
+
+---
+
 # 6. Authentication and Onboarding
 
 ## 6.1 Account identity model
+
+The initial account implementation is tracked in [#5](https://github.com/av-evolv/social-chat-platform/issues/5): verified email plus passkeys, stable UUIDv7 account/participant IDs, primary-checked sessions and OAuth-scoped account/device management. Email identities use authenticated encryption and separate keyed lookup; canonicalization preserves local-part case, dots and plus tags. Account recovery requires fresh email proof and a new passkey, preserves actor IDs and revokes prior credentials/devices/sessions without restoring encryption keys. New account devices remain crypto-pending until #10. The shared client and issuer authentication surfaces are documented in [docs/accounts.md](docs/accounts.md); English/French coverage follows #42. Phone identities and additional/guest identity linking require later migrations and the explicit #7 claim policy.
+
 
 Support both:
 

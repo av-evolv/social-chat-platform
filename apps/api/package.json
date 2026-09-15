@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/build-browser.mjs",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts"
@@ -16,14 +16,20 @@
   "dependencies": {
     "@fastify/cors": "11.3.0",
     "@fastify/middie": "9.3.4",
+    "@simplewebauthn/browser": "14.0.0",
+    "@simplewebauthn/server": "14.0.2",
     "fastify": "5.12.4",
+    "jose": "6.2.12",
+    "nodemailer": "10.0.10",
     "oidc-provider": "9.12.2",
     "pg": "8.23.0"
   },
   "devDependencies": {
     "@types/node": "24.13.4",
+    "@types/nodemailer": "8.0.1",
     "@types/oidc-provider": "9.12.1",
     "@types/pg": "8.23.1",
+    "esbuild": "0.28.2",
     "tsx": "4.23.13",
     "typescript": "6.0.3"
   }

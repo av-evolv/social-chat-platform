@@ -6,6 +6,8 @@ COPY apps/api/package.json apps/api/package.json
 COPY vendor vendor
 RUN npm ci
 COPY apps/client apps/client
+ARG EXPO_PUBLIC_API_ORIGIN=http://localhost:3000
+ENV EXPO_PUBLIC_API_ORIGIN=$EXPO_PUBLIC_API_ORIGIN
 RUN npm run build:web --workspace @larynx/client
 
 FROM nginx:1.28-alpine AS runtime

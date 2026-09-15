@@ -10,7 +10,7 @@ test('universal shell boots without runtime errors or horizontal overflow', asyn
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: 'Good things start with a conversation.' })).toBeVisible();
   await expect(page.getByText('Early development', { exact: true })).toBeVisible();
-  await expect(page.getByText('The shared app foundation is here. Accounts and messaging are still being built.')).toBeVisible();
+  await expect(page.getByText('Your account is ready to set up. Conversations and shared plans are coming next.')).toBeVisible();
   // Browser dimensions must update the server-rendered compact layout after hydration.
   await expect(page.getByRole('heading', { name: 'Good things start with a conversation.' }))
     .toHaveCSS('font-size', page.viewportSize()!.width >= 820 ? '58px' : '42px');

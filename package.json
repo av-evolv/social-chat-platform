@@ -14,7 +14,7 @@
   "scripts": {
     "dev:client": "npm run dev --workspace @larynx/client",
     "dev:web": "npm run web --workspace @larynx/client",
-    "dev:api": "node --env-file=.env --env-file=.env.oauth --import tsx --watch apps/api/src/server.ts",
+    "dev:api": "node --env-file=.env --env-file=.env.oauth --env-file=.env.accounts --import tsx --watch apps/api/src/server.ts",
     "typecheck": "npm run typecheck --workspaces",
     "test": "npm run test:query && npm run test --workspaces --if-present",
     "build": "npm run build --workspace @larynx/api && npm run build --workspace @larynx/client",
@@ -22,7 +22,8 @@
     "test:web": "node --env-file=.env node_modules/@playwright/test/cli.js test",
     "brand": "node server.mjs",
     "test:query": "node --test tests/query-decoder.test.mjs",
-    "oauth:setup": "node --env-file=.env scripts/setup-local-oauth.mjs"
+    "oauth:setup": "node --env-file=.env scripts/setup-local-oauth.mjs",
+    "accounts:setup": "node --env-file=.env scripts/setup-local-accounts.mjs"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "3.1131.0",

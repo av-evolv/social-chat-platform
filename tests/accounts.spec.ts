@@ -1,0 +1,42 @@
+import { randomUUID } from 'node:crypto';
+import { expect, test } from '@playwright/test';
+
+test('register through local email and passkey, return to the app and revoke the device', async ({ page, context, request }) => {
+  test.setTimeout(90_000);
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const recipient = `browser-${randomUUID()}@larynx.test`;
+  const inbox = `http://127.0.0.1:${process.env.MAILPIT_HTTP_PORT ?? '8025'}`;
+  await page.goto('/account');
+  await page.getByRole('button', { name: 'Sign in or create account', exact: true }).click();
+  await expect(page).toHaveURL(/localhost:\d+\/account\/login/);
+  await page.getByLabel('Email address', { exact: true }).fill(recipient);
+  await page.getByRole('button', { name: 'Send verification code', exact: true }).click();
+  await expect(page.getByLabel('Code from your email', { exact: true })).toBeVisible();
+  let mailId: string | undefined;
+  await expect.poll(async () => {
+    const list = await (await request.get(`${inbox}/api/v1/messages`)).json();
+    mailId = list.messages.find((message: { To: { Address: string }[] }) => message.To.some(to => to.Address === recipient))?.ID;
+    return Boolean(mailId);
+  }).toBe(true);
+  const message = await (await request.get(`${inbox}/api/v1/message/${mailId}`)).json();
+  const code = message.Text.match(/\b[A-Za-z0-9_-]{43}\b/)?.[0];
+  expect(code).toBeTruthy();
+  await page.getByLabel('Code from your email', { exact: true }).fill(code);
+  await page.getByLabel('Name this device', { exact: true }).fill('Browser test device');
+  await page.getByRole('button', { name: 'Verify email and create passkey', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Allow', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Signed in', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => ({ local: Object.keys(localStorage), session: Object.keys(sessionStorage) }))).toEqual({ local: [], session: [] });
+  expect(new URL(page.url()).search).toBe('');
+  await expect(page.getByRole('heading', { name: 'Browser test device · This device', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Revoke device', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm revocation', exact: true }).click();
+  await expect(page.getByText('This device has been revoked.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in or create account', exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});

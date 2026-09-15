@@ -3,7 +3,8 @@ import { buildApp } from './app.js';
 import { readConfig } from './config.js';
 import { readOAuthConfig } from './oauth/config.js';
 import { createOAuth } from './oauth/index.js';
-import { unavailableAccounts } from './oauth/accounts.js';
+import { createIdentity } from './identity/index.js';
+import { readIdentityConfig } from './identity/config.js';
 
 const config = readConfig();
 const pool = new Pool({
@@ -37,8 +38,11 @@ process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);
 
 try {
-  const oauth = await createOAuth(pool, readOAuthConfig(), unavailableAccounts);
+  const oauthConfig = readOAuthConfig();
+  const identity = await createIdentity(pool, readIdentityConfig(oauthConfig), oauthConfig);
+  const oauth = await createOAuth(pool, oauthConfig, identity.directory, { loginPath: '/account/login' });
   await oauth.mount(app);
+  await identity.mount(app, oauth);
   await app.listen({ host: config.host, port: config.port });
 } catch {
   app.log.error('API failed to start');
