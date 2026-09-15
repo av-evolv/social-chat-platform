@@ -387,6 +387,9 @@ Do not encode too much product logic into this enum; most behaviour should come 
 
 ## 3.7 Conversation membership and audience
 
+The M1 implementation is tracked in [#6](https://github.com/av-evolv/social-chat-platform/issues/6) and documented in [docs/audiences.md](docs/audiences.md): accepted circle invitations, independent conversation roles, canonicalized include/exclude sources, provenance, persistent self-leave and transactional membership refresh. All conversation members stay crypto-pending with content gates closed until #10; only eligible explicit owners/administrators can manage bootstrap audience metadata. Event sources use a fail-closed internal adapter until #12 supplies event authority; guest alias creation belongs to #7. A coarse primary policy lock initially serializes changes and protected operations, with scaling review in #19. Private display content follows #9/#10; client labels use creation dates and abbreviated IDs.
+
+
 Conversation access should support inherited and explicit membership.
 
 Conceptually:
