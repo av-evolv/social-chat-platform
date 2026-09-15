@@ -91,4 +91,4 @@ Use the name selector to preview a name across all four kits. Each phone switche
 
 `project-foundation.md` preserves a condensed version of the supplied product and architecture plan for future development.
 
-Account registration, passkeys and device management are described in [docs/accounts.md](docs/accounts.md). Local email is captured in Mailpit at http://127.0.0.1:8025; begin from the app account screen. English/French localization is planned in #42.
+Account registration, passkeys and device management are described in [docs/accounts.md](docs/accounts.md). Local email is captured in Mailpit at http://127.0.0.1:8025; begin from the app account screen. English/French language selection, account preferences and translated email are described in [docs/localization.md](docs/localization.md) (#42).

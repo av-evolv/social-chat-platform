@@ -9,6 +9,7 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/api/package.json ./apps/api/package.json
+COPY packages/i18n ./packages/i18n
 RUN npm ci --omit=dev --workspace @larynx/api --include-workspace-root=false --ignore-scripts \
     && npm cache clean --force
 COPY --from=build /app/apps/api/dist ./apps/api/dist

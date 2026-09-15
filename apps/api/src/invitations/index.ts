@@ -1,3 +1,4 @@
+import { negotiateLocale, type Locale } from '@larynx/i18n';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { OAuthAccessError, type createOAuth } from '../oauth/index.js';
@@ -22,7 +23,7 @@ function target(v: unknown): Target {
   if (value.type !== 'CIRCLE' && value.type !== 'CONVERSATION') return invalid();
   return {type:value.type,id:uuid(value.id)};
 }
-export async function mountInvitations(app: FastifyInstance, oauth: OAuth, store: InvitationStore, mail: InvitationMailer) {
+export async function mountInvitations(app: FastifyInstance, oauth: OAuth, store: InvitationStore, mail: InvitationMailer, recipientLocale: (email: string) => Promise<Locale | null | undefined> = async () => undefined) {
   if (!app.hasDecorator('rateLimit')) await app.register(rateLimit,{global:false});
   const limited = app.rateLimit({max:60,timeWindow:60_000,cache:5000});
   async function authorize(request: FastifyRequest, scopes: string[]): Promise<InvitationActor> {
@@ -32,17 +33,17 @@ export async function mountInvitations(app: FastifyInstance, oauth: OAuth, store
     }
     throw new OAuthAccessError(403,'insufficient_scope');
   }
-  async function deliver(delivery: Delivery | undefined): Promise<'PENDING' | 'SENT' | 'FAILED'> {
+  async function deliver(delivery: Delivery | undefined, locale: Locale): Promise<'PENDING' | 'SENT' | 'FAILED'> {
     if (!delivery) return 'PENDING';
     let sent = false;
-    try { await mail(delivery); sent = true; } catch { app.log.warn('Invitation email delivery failed'); }
+    try { await mail({...delivery,locale:await recipientLocale(delivery.email) ?? locale}); sent = true; } catch { app.log.warn('Invitation email delivery failed'); }
     try { await store.recordDelivery(delivery,sent); } catch { app.log.warn('Invitation delivery status awaits explicit retry'); return 'PENDING'; }
     return sent ? 'SENT' : 'FAILED';
   }
-  async function sendIssued(issued: IssuedInvitation) {
-    return {...issued.invitation,delivery:issued.delivery ? await deliver(issued.delivery) : issued.invitation.delivery};
+  async function sendIssued(issued: IssuedInvitation, locale: Locale) {
+    return {...issued.invitation,delivery:issued.delivery ? await deliver(issued.delivery,locale) : issued.invitation.delivery};
   }
-  function route(method:'GET'|'POST',path:string,scopes:string[],fields:string[],handler:(actor:InvitationActor,id:string,body:Record<string,unknown>)=>Promise<unknown>) {
+  function route(method:'GET'|'POST',path:string,scopes:string[],fields:string[],handler:(actor:InvitationActor,id:string,body:Record<string,unknown>,locale:Locale)=>Promise<unknown>) {
     app.route({method,url:`/v1/invitations${path}`,bodyLimit:8192,onRequest:limited,
       errorHandler(error,_request,reply) { if(error.statusCode===429) return reply.header('cache-control','no-store').code(429).send({error:'too_many_requests'}); return reply.send(error); },
       handler:async(request,reply)=>{
@@ -50,7 +51,7 @@ export async function mountInvitations(app: FastifyInstance, oauth: OAuth, store
         try {
           const actor=await authorize(request,scopes);
           const id=path.includes(':id')?uuid((request.params as {id:string}).id):'';
-          return await handler(actor,id,method==='POST'?bodyOf(request.body,fields):{});
+          return await handler(actor,id,method==='POST'?bodyOf(request.body,fields):{},negotiateLocale(request.headers['accept-language']));
         } catch(error) {
           if(error instanceof InvitationError || error instanceof SocialError || error instanceof OAuthAccessError) {
             if(error.status===401) reply.header('www-authenticate','Bearer');
@@ -65,16 +66,16 @@ export async function mountInvitations(app: FastifyInstance, oauth: OAuth, store
   }
   const read=['circles:read','conversations:read']; const write=['circles:write','conversations:write'];
   route('GET','',read,[],a=>store.list(a));
-  route('POST','',write,['target','email','operation_key','expected_revision'],async(a,_id,b)=>{
+  route('POST','',write,['target','email','operation_key','expected_revision'],async(a,_id,b,locale)=>{
     const issued=await store.create(a,{target:target(b.target),email:email(b.email),operationKey:uuid(b.operation_key),expectedRevision:revision(b.expected_revision)});
-    return sendIssued(issued);
+    return sendIssued(issued,locale);
   });
-  route('POST','/:id/resend',write,['expected_revision'],async(a,id,b)=>{
-    return sendIssued(await store.resend(a,id,revision(b.expected_revision)));
+  route('POST','/:id/resend',write,['expected_revision'],async(a,id,b,locale)=>{
+    return sendIssued(await store.resend(a,id,revision(b.expected_revision)),locale);
   });
   route('POST','/:id/revoke',write,['expected_revision'],(a,id,b)=>store.revoke(a,id,revision(b.expected_revision)));
-  route('POST','/proof',['profile:write'],['token','email'],async(a,_id,b)=>{
-    const issued=await store.requestProof(a,{token:credential(b.token),email:email(b.email)}); await deliver(issued.delivery);
+  route('POST','/proof',['profile:write'],['token','email'],async(a,_id,b,locale)=>{
+    const issued=await store.requestProof(a,{token:credential(b.token),email:email(b.email)}); await deliver(issued.delivery,locale);
     return {sent:true};
   });
   route('POST','/accept',['profile:write'],['token','email','code','confirm_accept'],(a,_id,b)=>{

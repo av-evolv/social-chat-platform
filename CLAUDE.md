@@ -11,6 +11,8 @@ We use PostgreSQL for the database, supporting read replicas and full-text searc
 Frontend should use TypeScript and be seperate from the backend.
 The backend must be an OAuth2 provider allowing 3rd party application developers and all API access should occur using OAuth2 tokens for explicit application and scope control.
 
+All user-facing app, issuer and email copy must use the shared `@larynx/i18n` English/French catalogs. Add matching keys and named interpolation/plural forms in both languages, and use locale-aware date/number formatting. Keep API codes and user-authored content unchanged; escape translated server HTML. See [docs/localization.md](docs/localization.md).
+
 Keep the social_chat_platform_plan.md up to date with any overall design changes and link to github issues that track features described in the plan as they are implemented. Github issues and pull requests are where the details live.
 
 Use docker compose for running the platform locally with the Garage project as an S3 stand in for CI and local development (https://git.deuxfleurs.fr/Deuxfleurs/garage) - uploads and downloads should occur directly from the frontends using signed requests to avoid server load (allow for resumable mutli-part uploads) with server side validation once an upload is marked as completed by the frontend. The server backend will perform deletes as part of SQL transactions.

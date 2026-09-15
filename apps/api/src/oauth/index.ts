@@ -1,3 +1,5 @@
+import { matchLocale, translate } from '@larynx/i18n';
+import { languageLinks, requestedLocale } from '../identity/locale.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import middie from '@fastify/middie';
@@ -96,7 +98,13 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
       return { device_id: binding.deviceId, login_session_id: binding.sessionId };
     },
     clientBasedCORS: (_ctx, origin, client) => clients.get(client.clientId)?.origins.includes(origin) ?? false,
-    renderError: async (ctx, output) => { ctx.type = 'application/json'; ctx.body = { error: output.error }; },
+    renderError: async (ctx, output) => {
+      if (ctx.method === 'GET' && ctx.get('accept').includes('text/html')) {
+        const locale = requestedLocale(undefined,ctx.get('accept-language'));
+        ctx.type = 'text/html';
+        ctx.body = `<!doctype html><html lang="${locale}"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escape(translate(locale,'server.oauth.title'))}</title><p>${escape(translate(locale,'server.oauth.unavailable'))}</p></html>`;
+      } else { ctx.type = 'application/json'; ctx.body = { error: output.error }; }
+    },
   });
   provider.proxy = config.trustProxy ?? false;
 
@@ -120,55 +128,75 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
     });
     await app.register(cors, {
       origin: [...new Set(config.clients.flatMap(client => client.origins))],
-      methods: ['GET', 'POST'], allowedHeaders: ['Authorization', 'Content-Type'], credentials: false, maxAge: 600,
+      methods: ['GET', 'POST'], allowedHeaders: ['Authorization', 'Content-Type', 'Accept-Language'], credentials: false, maxAge: 600,
     });
     app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string', bodyLimit: 8192 }, (_req, body, done) => done(null, new URLSearchParams(body as string)));
     app.route<{ Params: { uid: string }; Body: URLSearchParams }>({
       method: ['GET', 'POST'], url: '/oidc/interaction/:uid',
       handler: async (request, reply) => {
         reply.headers({ 'cache-control': 'no-store', 'referrer-policy': 'same-origin', 'content-security-policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'", 'x-content-type-options': 'nosniff' });
+        const interactionError = (status: number, error: string) => {
+          if (request.method !== 'GET' || !request.headers.accept?.includes('text/html')) return reply.code(status).send({error});
+          const locale = matchLocale((request.query as Record<string,unknown>).lang) ?? requestedLocale(undefined,request.headers['accept-language']);
+          return reply.code(status).type('text/html').send(`<!doctype html><html lang="${locale}"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escape(translate(locale,'server.oauth.title'))}</title><p>${escape(translate(locale,'server.oauth.unavailable'))}</p></html>`);
+        };
         try {
           const details = await provider.interactionDetails(request.raw, reply.raw);
-          if (details.uid !== request.params.uid || !['login', 'consent'].includes(details.prompt.name)) return reply.code(400).send({ error: 'invalid_interaction' });
+          if (details.uid !== request.params.uid || !['login', 'consent'].includes(details.prompt.name)) return interactionError(400,'invalid_interaction');
           const approved = typeof details.params.client_id === 'string' ? clients.get(details.params.client_id) : undefined;
           const redirect = details.params.redirect_uri;
-          if (typeof redirect !== 'string' || !approved?.redirect_uris?.includes(redirect)) return reply.code(400).send({ error: 'invalid_interaction' });
+          if (typeof redirect !== 'string' || !approved?.redirect_uris?.includes(redirect)) return interactionError(400,'invalid_interaction');
           const destination = new URL(redirect);
           // Browsers apply form-action to the provider's redirect chain too.
           // Permit only this registered callback origin (or native app scheme).
           const formDestination = ['https:', 'http:'].includes(destination.protocol) ? destination.origin : destination.protocol;
           reply.header('content-security-policy', `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' ${formDestination}`);
           const verified = await authenticate(request.raw);
+          const query = request.query as Record<string,unknown>;
+          const explicitLocale = matchLocale(query.lang);
+          const saved = verified ? await accounts.findAccount(verified.accountId) : undefined;
+          const locale = explicitLocale ?? saved?.locale ?? requestedLocale(details.params.ui_locales,request.headers['accept-language']);
+          const t = (key: string, values: Record<string,unknown> = {}) => escape(translate(locale,`server.${key}`,values));
           if (!verified) {
-            if (request.method === 'GET' && options.loginPath) return reply.redirect(`${options.loginPath}?return_to=${encodeURIComponent(`/oidc/interaction/${details.uid}`)}`);
-            return reply.code(503).send({ error: 'account_authentication_unavailable' });
+            if (request.method === 'GET' && options.loginPath) return reply.redirect(`${options.loginPath}?${new URLSearchParams({return_to:`/oidc/interaction/${details.uid}`,ui_locales:locale,...(explicitLocale ? {lang:explicitLocale} : {})})}`);
+            return interactionError(503,'account_authentication_unavailable');
           }
-          if (details.prompt.name === 'consent' && details.session?.accountId && details.session.accountId !== verified.accountId) return reply.code(403).send({ error: 'account_mismatch' });
+          if (details.prompt.name === 'consent' && details.session?.accountId && details.session.accountId !== verified.accountId) return interactionError(403,'account_mismatch');
           const secret = csrf(details.uid, details.prompt.name, verified.accountId);
           if (request.method === 'GET') {
             await submissions.upsert(details.uid, {}, 600);
             const scope = typeof details.params.scope === 'string' ? details.params.scope : '';
             const client = typeof details.params.client_id === 'string' ? details.params.client_id : '';
-            return reply.type('text/html').send(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Larynx authorization</title><body><h1>${details.prompt.name === 'login' ? 'Continue to Larynx' : 'Allow application access?'}</h1><p>Application: ${escape(client)}</p><p>Requested permissions: ${escape(scope)}</p><form method="post" action="/oidc/interaction/${escape(details.uid)}"><input type="hidden" name="csrf" value="${secret}"><button name="decision" value="approve">${details.prompt.name === 'login' ? 'Continue' : 'Allow'}</button><button name="decision" value="deny">Cancel</button></form></body></html>`);
+            const permissions = scope.split(' ').filter(Boolean).map(permission => {
+              const key = `server.scope.${permission}`;
+              const label = translate(locale,key);
+              return `<li>${escape(label === key ? translate(locale,'server.scope.unknown',{scope:permission}) : label)} <code>(${escape(permission)})</code></li>`;
+            }).join('');
+            return reply.type('text/html').send(`<!doctype html><html lang="${locale}"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${t('oauth.title')}</title><body>${languageLinks(locale,`/oidc/interaction/${details.uid}`)}<h1>${t(details.prompt.name === 'login' ? 'oauth.continueHeading' : 'oauth.consentHeading')}</h1><p>${t('oauth.application',{name:client})}</p><p>${t('oauth.permissions')}</p><ul>${permissions}</ul><form method="post" action="/oidc/interaction/${escape(details.uid)}"><input type="hidden" name="csrf" value="${secret}">${explicitLocale ? `<input type="hidden" name="locale" value="${explicitLocale}">` : ''}<button name="decision" value="approve">${t(details.prompt.name === 'login' ? 'oauth.continue' : 'oauth.allow')}</button><button name="decision" value="deny">${t('oauth.cancel')}</button></form></body></html>`);
           }
           const body = request.body;
           const supplied = body instanceof URLSearchParams ? body.get('csrf') ?? '' : '';
           const decision = body instanceof URLSearchParams ? body.get('decision') : null;
-          if (request.headers.origin !== new URL(config.issuer).origin || !(body instanceof URLSearchParams) || body.getAll('csrf').length !== 1 || body.getAll('decision').length !== 1 || !['approve', 'deny'].includes(decision ?? '') || Buffer.byteLength(supplied) !== Buffer.byteLength(secret) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(secret))) return reply.code(403).send({ error: 'invalid_csrf' });
+          if (request.headers.origin !== new URL(config.issuer).origin || !(body instanceof URLSearchParams) || body.getAll('csrf').length !== 1 || body.getAll('decision').length !== 1 || !['approve', 'deny'].includes(decision ?? '') || Buffer.byteLength(supplied) !== Buffer.byteLength(secret) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(secret))) return interactionError(403,'invalid_csrf');
+          const selectedLocale = body.get('locale');
+          if (body.getAll('locale').length > 1 || selectedLocale !== null && selectedLocale !== 'en' && selectedLocale !== 'fr') return interactionError(400,'invalid_request');
           await submissions.consume(details.uid);
+          // Persist explicit issuer selection only after the same session-bound,
+          // single-use CSRF check that protects consent. Passive detection is read-only.
+          if (selectedLocale) await accounts.saveLocale?.(verified,selectedLocale);
           let result;
           if (decision === 'deny') result = { error: 'access_denied' };
           else if (details.prompt.name === 'login') result = { login: { accountId: verified.accountId, remember: true } };
           else {
             const clientId = String(details.params.client_id);
-            if (!clients.has(clientId) || details.session?.accountId !== verified.accountId) return reply.code(403).send({ error: 'invalid_consent' });
+            if (!clients.has(clientId) || details.session?.accountId !== verified.accountId) return interactionError(403,'invalid_consent');
             const grant = details.grantId ? await provider.Grant.find(details.grantId) : new provider.Grant({ accountId: verified.accountId, clientId });
-            if (!grant || grant.accountId !== verified.accountId || grant.clientId !== clientId) return reply.code(403).send({ error: 'invalid_grant' });
+            if (!grant || grant.accountId !== verified.accountId || grant.clientId !== clientId) return interactionError(403,'invalid_grant');
             const missing = details.prompt.details;
             if (Array.isArray(missing.missingOIDCScope)) grant.addOIDCScope(missing.missingOIDCScope as string[]);
             if (missing.missingResourceScopes && typeof missing.missingResourceScopes === 'object') {
               for (const [resource, scopes] of Object.entries(missing.missingResourceScopes)) {
-                if (resource !== config.resource || !Array.isArray(scopes) || scopes.some(scope => !clients.get(clientId)!.allowedScopes.includes(scope))) return reply.code(403).send({ error: 'invalid_scope' });
+                if (resource !== config.resource || !Array.isArray(scopes) || scopes.some(scope => !clients.get(clientId)!.allowedScopes.includes(scope))) return interactionError(403,'invalid_scope');
                 grant.addResourceScope(resource, scopes as string[]);
               }
             }
@@ -178,7 +206,7 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
           }
           const returnTo = await provider.interactionResult(request.raw, reply.raw, result, { mergeWithLastSubmission: details.prompt.name !== 'login' });
           return reply.redirect(returnTo);
-        } catch { return reply.code(400).send({ error: 'invalid_interaction' }); }
+        } catch { return interactionError(400,'invalid_interaction'); }
       },
     });
     app.get('/v1/session', async (request, reply) => {

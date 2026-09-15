@@ -87,14 +87,18 @@ async function fixture(t: TestContext) {
     try { await target.page.waitForURL(origin + '/account/complete'); }
     catch { assert.fail(`Registration did not complete: ${target.failures.join(', ')}; ${await target.page.locator('#status').textContent()}`); }
   }
-  async function authorize(page: Page): Promise<Tokens> {
+  async function authorize(page: Page, scope = 'openid offline_access profile:read profile:write', selectedLocale?: 'en' | 'fr'): Promise<Tokens> {
     const nonce = randomBytes(24).toString('base64url'); const verifier = randomBytes(32).toString('base64url'); const state = randomBytes(24).toString('base64url');
     const url = new URL(origin + '/oidc/auth');
     url.search = new URLSearchParams({ client_id: 'identity-browser', redirect_uri: origin + '/test/callback',
-      response_type: 'code', scope: 'openid offline_access profile:read profile:write', resource: config.resource,
+      response_type: 'code', scope, resource: config.resource,
       code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
       state, nonce, prompt: 'consent' }).toString();
     await page.goto(url.href);
+    if (selectedLocale) {
+      await page.getByRole('link',{name:selectedLocale === 'fr' ? 'Français' : 'English',exact:true}).click();
+      await expect(page.locator('html')).toHaveAttribute('lang',selectedLocale);
+    }
     for (let i = 0; i < 3 && new URL(page.url()).pathname !== '/test/callback'; i++) {
       await page.locator('button[value="approve"]').click();
       await page.waitForLoadState('domcontentloaded');
@@ -152,6 +156,57 @@ test('account browser ceremonies use real WebAuthn and PostgreSQL', { skip: !ena
     const loggedIn = await f.account(await f.authorize(user.page));
     assert.equal(loggedIn.accountId, before.accountId); assert.equal(loggedIn.participantId, before.participantId);
     assert.equal(loggedIn.devices.length, 1); assert.equal(loggedIn.devices[0]!.id, before.devices[0]!.id);
+  });
+
+  await t.test('issuer locales are isolated, escaped and preserve the return path allowlist', async t => {
+    const f = await fixture(t);
+    const path = '/oidc/interaction/known_123';
+    const pages = await Promise.all(['en','fr','en','fr'].map(async locale => {
+      const response = await fetch(`${f.origin}/account/login?return_to=${encodeURIComponent(path)}`,{headers:{'accept-language':locale}});
+      const html = await response.text();
+      assert.ok(html.includes(`<html lang="${locale}">`));
+      assert.ok(html.includes(`name="larynx-return" content="${path}"`));
+      assert.ok(!html.includes('server.login.'));
+      return html;
+    }));
+    assert.ok(pages[1]!.includes('Vos proches, réunis.'));
+    const malicious = await fetch(`${f.origin}/account/login?lang=${encodeURIComponent('fr"><script>alert(1)</script>')}&return_to=${encodeURIComponent('https://evil.example/')}`,{headers:{'accept-language':'en'}});
+    const html = await malicious.text();
+    assert.equal(html.match(/name="larynx-return" content="([^"]*)"/)?.[1], '/account/complete');
+    assert.ok(!html.includes('<script>alert(1)</script>'));
+  });
+
+  await t.test('explicit consent language persists through authorization and saved preference wins passive detection', async t => {
+    const f = await fixture(t); const user = await f.context();
+    await f.register(user,'consent-locale@example.com');
+    const tokens = await f.authorize(user.page,undefined,'fr');
+    assert.equal((await f.account(tokens) as Account & {locale:string}).locale,'fr');
+    const saved = await user.ctx.request.get(f.origin+'/account/login?ui_locales=en',{headers:{'accept-language':'en'}});
+    assert.ok((await saved.text()).includes('<html lang="fr">'));
+    const explicit = await user.ctx.request.get(f.origin+'/account/login?lang=en');
+    assert.ok((await explicit.text()).includes('<html lang="en">'));
+    assert.equal((await f.account(tokens) as Account & {locale:string}).locale,'fr','Viewing an explicit language must not mutate the account');
+  });
+
+  await t.test('locale endpoint validates scope, payload and fresh OAuth state', async t => {
+    const f = await fixture(t); const user = await f.context();
+    await f.register(user,'locale-api@example.com');
+    const tokens = await f.authorize(user.page);
+    const readonly = await f.authorize(user.page,'openid offline_access profile:read');
+    const update = (body: object, token = tokens.access_token) => fetch(f.origin+'/v1/account/locale',{
+      method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body),
+    });
+    assert.equal((await update({locale:'fr'},readonly.access_token)).status,403);
+    assert.equal((await update({locale:'fr'})).status,200);
+    assert.equal((await f.account(tokens) as Account & {locale:string}).locale,'fr');
+    for (const body of [{locale:'es'},{locale:'fr-CA'},{locale:'fr',accountId:'other'},{}]) assert.equal((await update(body)).status,400);
+    const original = f.oauth.assertTransaction;
+    f.oauth.assertTransaction = async () => { throw new Error('Grant revoked after authorization'); };
+    assert.equal((await update({locale:'en'})).status,400);
+    f.oauth.assertTransaction = original;
+    assert.equal((await f.account(tokens) as Account & {locale:string}).locale,'fr');
+    assert.equal((await f.api('/v1/logout',tokens.access_token,'POST')).status,200);
+    assert.equal((await update({locale:'en'})).status,401);
   });
 
   await t.test('recovery keeps account identity and invalidates old passkeys, devices, access and refresh', async t => {

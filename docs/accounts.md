@@ -38,7 +38,7 @@ The client validates the exact callback, issuer parameter, state, flow age and S
 
 Set `EXPO_PUBLIC_API_ORIGIN` at client build time for deployment. Production uses a stable HTTPS issuer hostname as the RP ID, identity keys from the secret manager, and `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`. Port465 uses implicit TLS; port587 requires STARTTLS; both validate certificates. The local Compose mail override is development-only. Ingress must preserve configured host/origin, strip untrusted forwarded headers, enforce TLS and avoid logging authentication bodies/cookies/query credentials. Production migration privileges and operations remain #19.
 
-English and French localization of the shared app, issuer pages, accessibility text and mail is tracked in [#42](https://github.com/av-evolv/social-chat-platform/issues/42) and required before public launch. The current surfaces are English.
+English and French localization of the shared app, issuer pages, accessibility text and mail is implemented in [#42](https://github.com/av-evolv/social-chat-platform/issues/42). See [localization](localization.md) for preference storage, scoped updates and locale propagation. New surfaces must retain both languages before public launch.
 
 ## Verification
 

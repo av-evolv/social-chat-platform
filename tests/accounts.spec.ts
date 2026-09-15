@@ -31,7 +31,7 @@ test('register through local email and passkey, return to the app and revoke the
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.getByRole('button', { name: 'Allow', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Signed in', exact: true })).toBeVisible();
-  expect(await page.evaluate(() => ({ local: Object.keys(localStorage), session: Object.keys(sessionStorage) }))).toEqual({ local: [], session: [] });
+  expect(await page.evaluate(() => ({ local: Object.keys(localStorage).filter(key => key !== 'larynx.locale'), session: Object.keys(sessionStorage) }))).toEqual({ local: [], session: [] });
   expect(new URL(page.url()).search).toBe('');
   await expect(page.getByRole('heading', { name: 'Browser test device · This device', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Your circles and conversations →', exact: true }).click();
@@ -44,10 +44,10 @@ test('register through local email and passkey, return to the app and revoke the
   await page.getByRole('button', { name: 'Add audience source', exact: true }).click();
   await page.getByRole('button', { name: 'Preview audience', exact: true }).click();
   await expect(page.getByText('1 eligible · 0 excluded', { exact: true })).toBeVisible();
-  await expect(page.getByText('2 inclusion source(s)', { exact: true })).toBeVisible();
+  await expect(page.getByText('2 inclusion sources', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Create conversation', exact: true }).click();
   await expect(page.getByText('Pending encryption. Messages cannot be sent or read yet.', { exact: true })).toBeVisible();
-  await expect(page.getByText('Pending encryption · Included by 2 audience source(s)', { exact: true })).toBeVisible();
+  await expect(page.getByText('Pending encryption · Included by 2 audience sources', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('audience.png'), fullPage: true });
   await page.getByRole('link', { name: '← Your account', exact: true }).click();

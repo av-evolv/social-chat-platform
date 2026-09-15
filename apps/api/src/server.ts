@@ -4,7 +4,7 @@ import { readConfig } from './config.js';
 import { readOAuthConfig } from './oauth/config.js';
 import { createOAuth } from './oauth/index.js';
 import { createIdentity } from './identity/index.js';
-import { readIdentityConfig } from './identity/config.js';
+import { readIdentityConfig, keyed } from './identity/config.js';
 
 import { SocialStore } from './social/store.js';
 import { mountSocial } from './social/index.js';
@@ -59,7 +59,7 @@ try {
   await identity.mount(app, oauth);
   await mountSocial(app, oauth, social);
   const frontend = oauthConfig.clients.find(client => client.client_id === 'larynx-web')?.redirect_uris?.[0] ?? identityConfig.origin;
-  await mountInvitations(app,oauth,invitations,createInvitationMailer(identityConfig,frontend));
+  await mountInvitations(app,oauth,invitations,createInvitationMailer(identityConfig,frontend),async email => (await identity.store.findIdentity(keyed(identityConfig,'email',email)))?.locale);
   await app.listen({ host: config.host, port: config.port });
 } catch {
   app.log.error('API failed to start');

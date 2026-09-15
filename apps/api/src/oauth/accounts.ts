@@ -10,7 +10,8 @@ export interface VerifiedSession {
 // body, OAuth scope or invitation URL may manufacture a VerifiedSession.
 export interface AccountDirectory {
   authenticate(request: IncomingMessage): Promise<VerifiedSession | undefined>;
-  findAccount(accountId: string): Promise<{ id: string; participantId: string } | undefined>;
+  findAccount(accountId: string): Promise<{ id: string; participantId: string; locale?: 'en' | 'fr' | null } | undefined>;
+  saveLocale?(session: VerifiedSession, locale: 'en' | 'fr'): Promise<void>;
   isSessionActive(session: VerifiedSession): Promise<boolean>;
 }
 

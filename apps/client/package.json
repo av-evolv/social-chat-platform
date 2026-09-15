@@ -32,10 +32,13 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-web": "~0.21.0",
-    "react-native-worklets": "0.10.1"
+    "react-native-worklets": "0.10.1",
+    "@larynx/i18n": "0.1.0",
+    "expo-localization": "~57.0.2"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "esbuild": "0.28.2"
   }
 }

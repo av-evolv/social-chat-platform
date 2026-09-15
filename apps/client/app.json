@@ -17,6 +17,24 @@
       "bundler": "metro",
       "output": "static"
     },
-    "plugins": ["expo-router", "expo-secure-store"]
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "ios": [
+              "en",
+              "fr"
+            ],
+            "android": [
+              "en",
+              "fr"
+            ]
+          }
+        }
+      ]
+    ]
   }
 }

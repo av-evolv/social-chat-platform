@@ -1,0 +1,21 @@
+{
+  "name": "@larynx/i18n",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "node --check index.js"
+  },
+  "dependencies": {
+    "i18next": "26.4.2"
+  }
+}

@@ -1099,7 +1099,7 @@ Larynx will support **English (`en`) and French (`fr`) initially** across the sh
 - Format dates, times and numbers for the selected locale while preserving each event's timezone and canonical API/storage values. Test French accents, plural forms and longer text on all screen sizes.
 - User-authored conversations, messages and event content retain their original language. Automatic translation is separate future scope.
 
-The initial account implementation in [#5](https://github.com/av-evolv/social-chat-platform/issues/5) creates the surfaces that #42 will localize; English and French coverage is required before public launch. Detailed library selection, catalog structure and verification belong in #42's implementation PR.
+[#42](https://github.com/av-evolv/social-chat-platform/issues/42) implements the shared `@larynx/i18n` workspace with i18next JSON v4 catalogs, named interpolation/plurals and Intl formatting. Expo localization detects native language; a shared selector persists the device choice and authenticated accounts retain a scoped language preference. Issuer signup, recovery, consent and transactional mail resolve locale per request without changing OAuth authority. See [docs/localization.md](docs/localization.md) and [PR #46](https://github.com/av-evolv/social-chat-platform/pull/46) for contracts and verification. English/French coverage remains required for every new user-facing surface and before public launch.
 
 ---
 
@@ -1107,7 +1107,7 @@ The initial account implementation in [#5](https://github.com/av-evolv/social-ch
 
 ## 6.1 Account identity model
 
-The initial account implementation is tracked in [#5](https://github.com/av-evolv/social-chat-platform/issues/5): verified email plus passkeys, stable UUIDv7 account/participant IDs, primary-checked sessions and OAuth-scoped account/device management. Email identities use authenticated encryption and separate keyed lookup; canonicalization preserves local-part case, dots and plus tags. Account recovery requires fresh email proof and a new passkey, preserves actor IDs and revokes prior credentials/devices/sessions without restoring encryption keys. New account devices remain crypto-pending until #10. The shared client and issuer authentication surfaces are documented in [docs/accounts.md](docs/accounts.md); English/French coverage follows #42. Phone identities and additional/guest identity linking require later migrations and the explicit #7 claim policy.
+The initial account implementation is tracked in [#5](https://github.com/av-evolv/social-chat-platform/issues/5): verified email plus passkeys, stable UUIDv7 account/participant IDs, primary-checked sessions and OAuth-scoped account/device management. Email identities use authenticated encryption and separate keyed lookup; canonicalization preserves local-part case, dots and plus tags. Account recovery requires fresh email proof and a new passkey, preserves actor IDs and revokes prior credentials/devices/sessions without restoring encryption keys. New account devices remain crypto-pending until #10. The shared client and issuer authentication surfaces are documented in [docs/accounts.md](docs/accounts.md); English/French coverage is implemented in #42. Phone identities and additional/guest identity linking require later migrations and the explicit #7 claim policy.
 
 
 Support both:
