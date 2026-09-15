@@ -4062,6 +4062,7 @@ For each selected issue: expand a checkable issue plan, save the detailed implem
 ## [M3 — Events and client intelligence](https://github.com/av-evolv/social-chat-platform/milestone/4)
 
 - [#12 — Implement events, RSVP and calendar projections](https://github.com/av-evolv/social-chat-platform/issues/12).
+- [#41 — Implement calendar export and email RSVP](https://github.com/av-evolv/social-chat-platform/issues/41).
 - [#13 — Implement client-side event suggestions](https://github.com/av-evolv/social-chat-platform/issues/13).
 - [#14 — Implement encrypted events and event key distribution](https://github.com/av-evolv/social-chat-platform/issues/14).
 
@@ -4081,10 +4082,12 @@ For each selected issue: expand a checkable issue plan, save the detailed implem
 
 - [#21 — Implement browser guests and deep-link onboarding](https://github.com/av-evolv/social-chat-platform/issues/21).
 - [#22 — Add phone identity and privacy-preserving discovery](https://github.com/av-evolv/social-chat-platform/issues/22).
+- [#51 — Add friendships and circle admission consent](https://github.com/av-evolv/social-chat-platform/issues/51).
 
 ## [M7 — Organiser and enterprise](https://github.com/av-evolv/social-chat-platform/milestone/8)
 
 - [#23 — Implement organisations and organiser event tools](https://github.com/av-evolv/social-chat-platform/issues/23).
+- [#54 — Integrate common-organisation circle admission](https://github.com/av-evolv/social-chat-platform/issues/54).
 - [#24 — Implement attendee networking and event integrations](https://github.com/av-evolv/social-chat-platform/issues/24).
 - [#25 — Implement organiser billing, branding and analytics](https://github.com/av-evolv/social-chat-platform/issues/25).
 - [#26 — Add sponsors and enterprise administration](https://github.com/av-evolv/social-chat-platform/issues/26).
