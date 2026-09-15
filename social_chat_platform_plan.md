@@ -878,7 +878,7 @@ Recommended backend components:
 A stateless application service exposing:
 
 - REST or JSON API for durable object operations;
-- WebSocket connection for realtime message/event delivery;
+- HTTP long polling for foreground change delivery, backed by durable cursor sync ([#8](https://github.com/av-evolv/social-chat-platform/issues/8));
 - OAuth2/OpenID Connect authorization, token, consent and account authentication endpoints;
 - media upload coordination;
 - invitation management;
@@ -1545,9 +1545,11 @@ Server:
 next_cursor = ...
 ```
 
-Realtime WebSockets can notify the client that new changes exist, while the durable sync API remains authoritative.
+The initial transport is HTTP long polling (`GET /v1/sync?after=<cursor>&wait=25`) with ordinary HTTP writes. Any API instance can serve the durable cursor; PostgreSQL notifications only wake waiting requests, and no database transaction or connection is held while an individual client waits. Fixed snapshots, revisioned envelopes and commit-ordered recipient streams make reconnect recovery independent of notification delivery. Long polling still holds HTTP connections; measure before assuming it scales more cheaply than WebSockets.
 
-Do not make WebSocket delivery itself the persistence mechanism.
+Mobile APNs/FCM notifications are opaque background wake hints in [#11](https://github.com/av-evolv/social-chat-platform/issues/11); foreground/resume always fetches durable sync, including when push never arrived. Optional WebSocket typing/presence hints can be considered after measurement. Push and sockets never become the persistence mechanism.
+
+[#8](https://github.com/av-evolv/social-chat-platform/issues/8) / [PR #47](https://github.com/av-evolv/social-chat-platform/pull/47) implements the backend transport/storage foundation. Metadata sync is available; production message content remains closed until [#10](https://github.com/av-evolv/social-chat-platform/issues/10) supplies real device/epoch/history admission. [#9](https://github.com/av-evolv/social-chat-platform/issues/9) owns the shared UI and atomic local cache. See [docs/sync.md](docs/sync.md) for APIs, seven-day cursor/retention horizon, five-minute bounded snapshots, 64 KiB envelopes, 256-recipient writes, revocation resets and operational limits. The inherited global policy lock/reconciliation remains a scaling concern for #19; changing transport alone does not solve it.
 
 ---
 
@@ -1683,7 +1685,7 @@ Build:
 - conversation memberships;
 - invitations;
 - durable change log/sync cursor;
-- WebSocket realtime notification channel.
+- bounded HTTP long polling over durable sync.
 
 At the end of Phase 1 it should be possible to:
 
@@ -2069,8 +2071,7 @@ conversation membership
 
 ```text
 messages
-sync
-WebSockets
+sync / HTTP long polling
 offline cache
 notifications
 ```

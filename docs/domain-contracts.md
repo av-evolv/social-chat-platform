@@ -109,7 +109,7 @@ Audience/grant changes append changes or invalidation markers for affected princ
 
 ### 5.2 Cursor and page contract
 
-`GET /sync?after=<opaque cursor>&limit=<bounded integer>` requires `sync:read` and relevant domain scopes. The cursor is integrity-protected and binds format version, principal, OAuth client/grant and scope fingerprint, device where needed, authorization generation, stream retention generation, last scanned position and the current page-window high watermark. It expires; raw positions supplied by the client are never trusted. Cursor signing is transport integrity, not content encryption.
+`GET /v1/sync?after=<opaque cursor>&limit=<bounded integer>` requires `sync:read` and relevant domain scopes. The cursor is integrity-protected and binds format version, principal, OAuth client/grant and scope fingerprint, device where needed, authorization generation, stream retention generation, last scanned position and the current page-window high watermark. It expires; raw positions supplied by the client are never trusted. Cursor signing is transport integrity, not content encryption.
 
 At the first page, capture the committed high watermark H at a consistent primary boundary. Scan `(last_position, H]` in increasing order with bounded work and payload size. Next cursor advances to the **last scanned** position, including omitted unauthorized/expired entries, not just the last returned item; otherwise filtering can loop forever. `has_more` indicates unscanned positions at or below H. An empty filtered page may still have `has_more=true`. After finishing H, the next request opens a new committed window. Never advance past an uncommitted gap or use an ever-moving end point that starves a busy stream.
 
@@ -165,3 +165,7 @@ Run `node --env-file=.env scripts/check-sync-ordering.mjs` after `npm ci` agains
 ## 7. Implementation handoff
 
 [#4](https://github.com/av-evolv/social-chat-platform/issues/4) implements scoped OAuth and token revocation. #5/#7 implement principal/identity constraints and verified claiming; #6 implements relational audience policy and transactional freshness; #8 implements the idempotency and sync protocol; #9 implements atomic local application; #10 implements reviewed cryptographic admission; #12/#14 implement event authorization/encryption; #15 implements signed media and transactional deletion intent; #19 proves production consistency and scaling. Every feature PR links its implemented scenario IDs and remaining cases. Shared TypeScript types must not replace server runtime validation, and the frontend never imports server policy/secret-bearing modules.
+
+### #8 implementation status
+
+[PR #47](https://github.com/av-evolv/social-chat-platform/pull/47) implements encrypted-envelope storage, transactionally ordered recipient streams, fixed snapshots/windows and OAuth HTTP long polling. [docs/sync.md](sync.md) specifies concrete limits and the protected primary snapshot boundary. Transport wake-ups use PostgreSQL notifications; WebSockets are an optional future hint transport. D12–D20/D22 backend success paths use explicit trusted admission fixtures, while production content remains closed for #10. D21 atomic local apply is #9; D23 authorization-safe replicas remain #19. This does not claim the cryptographic admission or client cache work is complete.
