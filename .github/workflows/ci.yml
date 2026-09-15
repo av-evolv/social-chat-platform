@@ -34,6 +34,7 @@ jobs:
         run: |
           cp .env.example .env
           npm run oauth:setup
+          npm run accounts:setup
           docker compose up --build --detach --wait --wait-timeout 180
       - name: Verify OAuth protocol and PostgreSQL persistence
         env:

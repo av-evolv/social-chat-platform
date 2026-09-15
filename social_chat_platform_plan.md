@@ -1104,6 +1104,9 @@ The initial account implementation in [#5](https://github.com/av-evolv/social-ch
 
 ## 6.1 Account identity model
 
+The initial account implementation is tracked in [#5](https://github.com/av-evolv/social-chat-platform/issues/5): verified email plus passkeys, stable UUIDv7 account/participant IDs, primary-checked sessions and OAuth-scoped account/device management. Email identities use authenticated encryption and separate keyed lookup; canonicalization preserves local-part case, dots and plus tags. Account recovery requires fresh email proof and a new passkey, preserves actor IDs and revokes prior credentials/devices/sessions without restoring encryption keys. New account devices remain crypto-pending until #10. The shared client and issuer authentication surfaces are documented in [docs/accounts.md](docs/accounts.md); English/French coverage follows #42. Phone identities and additional/guest identity linking require later migrations and the explicit #7 claim policy.
+
+
 Support both:
 
 - phone number;

@@ -15,7 +15,7 @@ function asBinding(value: AdapterPayload | undefined | void): VerifiedSession | 
     ? { accountId: value.accountId, deviceId: value.deviceId, sessionId: value.sessionId } : undefined;
 }
 
-export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: AccountDirectory, options: { schema?: string } = {}) {
+export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: AccountDirectory, options: { schema?: string; loginPath?: string } = {}) {
   await migrateOAuth(pool, options);
   const Adapter = createAdapter(pool, options);
   const bindings = new Adapter('LarynxGrantBinding');
@@ -74,6 +74,15 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
       },
     },
     interactions: { url: (_ctx, interaction) => `/oidc/interaction/${interaction.uid}` },
+    loadExistingGrant: async ctx => {
+      const grantId = ctx.oidc.result?.consent?.grantId || (ctx.oidc.client ? ctx.oidc.session?.grantIdFor(ctx.oidc.client.clientId) : undefined);
+      if (!grantId) return undefined;
+      const grant = await provider.Grant.find(grantId);
+      if (!grant) return undefined;
+      const verified = await accounts.authenticate(ctx.req);
+      const binding = asBinding(await bindings.find(grantId));
+      return verified && binding && verified.accountId === grant.accountId && binding.accountId === verified.accountId && binding.sessionId === verified.sessionId && binding.deviceId === verified.deviceId && await accounts.isSessionActive(verified) ? grant : undefined;
+    },
     findAccount: async (_ctx, id, token) => {
       const account = await accounts.findAccount(id);
       if (!account || token && !await activeBinding(token.grantId, id)) return undefined;
@@ -110,7 +119,7 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
     });
     await app.register(cors, {
       origin: [...new Set(config.clients.flatMap(client => client.origins))],
-      methods: ['GET'], allowedHeaders: ['Authorization'], credentials: false, maxAge: 600,
+      methods: ['GET', 'POST'], allowedHeaders: ['Authorization', 'Content-Type'], credentials: false, maxAge: 600,
     });
     app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string', bodyLimit: 8192 }, (_req, body, done) => done(null, new URLSearchParams(body as string)));
     app.route<{ Params: { uid: string }; Body: URLSearchParams }>({
@@ -129,8 +138,11 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
           const formDestination = ['https:', 'http:'].includes(destination.protocol) ? destination.origin : destination.protocol;
           reply.header('content-security-policy', `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self' ${formDestination}`);
           const verified = await authenticate(request.raw);
-          if (!verified) return reply.code(503).send({ error: 'account_authentication_unavailable' });
-          if (details.session?.accountId && details.session.accountId !== verified.accountId) return reply.code(403).send({ error: 'account_mismatch' });
+          if (!verified) {
+            if (request.method === 'GET' && options.loginPath) return reply.redirect(`${options.loginPath}?return_to=${encodeURIComponent(`/oidc/interaction/${details.uid}`)}`);
+            return reply.code(503).send({ error: 'account_authentication_unavailable' });
+          }
+          if (details.prompt.name === 'consent' && details.session?.accountId && details.session.accountId !== verified.accountId) return reply.code(403).send({ error: 'account_mismatch' });
           const secret = csrf(details.uid, details.prompt.name, verified.accountId);
           if (request.method === 'GET') {
             await submissions.upsert(details.uid, {}, 600);
@@ -200,9 +212,15 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
     const scopes = (token.scope ?? '').split(' ').filter(Boolean);
     if (scopes.some(scope => !clients.get(clientId)!.allowedScopes.includes(scope) || !grant.getResourceScope(config.resource).split(' ').includes(scope))) return denied();
     if (requiredScopes.some(scope => !scopes.includes(scope))) throw new OAuthAccessError(403, 'insufficient_scope');
-    return { accountId: account.id, participantId: account.participantId, clientId, deviceId: binding.deviceId, scopes };
+    return { accountId: account.id, participantId: account.participantId, clientId, deviceId: binding.deviceId, sessionId: binding.sessionId, scopes };
   }
-  return { provider, mount, authorize };
+  async function revokeSessions(sessionIds: string[]) {
+    if (!sessionIds.length) return;
+    const schema = options.schema ?? 'larynx_oauth'; // validated by createAdapter
+    const grants = await pool.query(`SELECT id FROM ${schema}.artifacts WHERE model='LarynxGrantBinding' AND payload->>'sessionId'=ANY($1::text[])`, [sessionIds]);
+    for (const row of grants.rows) await bindings.revokeByGrantId(row.id);
+  }
+  return { provider, mount, authorize, revokeSessions };
 }
 
 export class OAuthAccessError extends Error {

@@ -14,3 +14,6 @@ playwright-report/
 *.tsbuildinfo
 
 .env.oauth
+
+# Account identity keys and SMTP credentials
+.env.accounts

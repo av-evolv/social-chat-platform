@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Head from 'expo-router/head';
+import { Link } from 'expo-router';
 import { Platform, StyleSheet, Text, View, ScrollView, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -85,11 +86,11 @@ export default function HomeScreen() {
               </View>
               <Text role="heading" aria-level={2} style={styles.cardTitle}>Making room for connection.</Text>
               <Text style={styles.cardDescription}>
-                The shared app foundation is here. Accounts and messaging are still being built.
+                Your account is ready to set up. Conversations and shared plans are coming next.
               </Text>
               <View style={styles.cardFooter}>
-                <Text style={styles.cardFooterText}>Next up</Text>
-                <Text style={styles.cardFooterValue}>Accounts & access</Text>
+                <Text style={styles.cardFooterText}>Get started</Text>
+                <Link href="/account" style={styles.cardFooterValue}>Your account →</Link>
               </View>
             </View>
           </View>

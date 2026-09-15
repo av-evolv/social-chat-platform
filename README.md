@@ -14,6 +14,7 @@ Requirements: Node.js 24 (see `.nvmrc`), npm 11, Docker with Compose. Use `nvm i
 cp .env.example .env
 npm ci
 npm run oauth:setup
+npm run accounts:setup
 docker compose up --build --detach --wait
 npm run test:infra
 ```
@@ -89,3 +90,5 @@ Use the name selector to preview a name across all four kits. Each phone switche
 `brand-kits.md` contains the brand rationale, voice, component rules and accessibility guidance. `tokens.json` contains reusable colour, type, spacing and motion tokens. Logo concepts are editable SVGs in `assets/`.
 
 `project-foundation.md` preserves a condensed version of the supplied product and architecture plan for future development.
+
+Account registration, passkeys and device management are described in [docs/accounts.md](docs/accounts.md). Local email is captured in Mailpit at http://127.0.0.1:8025; begin from the app account screen. English/French localization is planned in #42.

@@ -11,3 +11,6 @@ test-results
 playwright-report
 
 .env.oauth
+
+# Account identity keys and SMTP credentials
+.env.accounts
