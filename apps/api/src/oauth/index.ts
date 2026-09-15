@@ -4,7 +4,7 @@ import middie from '@fastify/middie';
 import cors from '@fastify/cors';
 import type { FastifyInstance } from 'fastify';
 import Provider, { errors, type AdapterPayload } from 'oidc-provider';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { createAdapter, migrateOAuth } from './adapter.js';
 import type { AccountDirectory, VerifiedSession } from './accounts.js';
 import type { OAuthConfig } from './config.js';
@@ -20,6 +20,7 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
   const Adapter = createAdapter(pool, options);
   const bindings = new Adapter('LarynxGrantBinding');
   const submissions = new Adapter('LarynxInteractionSubmission');
+  const transactionContexts = new WeakMap<object, { tokenId: string; grantId: string; sessionUid: string; actor: string }>();
   const clients = new Map(config.clients.map(client => [client.client_id, client]));
   async function activeBinding(grantId: string | undefined, accountId: string) {
     if (!grantId) return undefined;
@@ -212,7 +213,38 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
     const scopes = (token.scope ?? '').split(' ').filter(Boolean);
     if (scopes.some(scope => !clients.get(clientId)!.allowedScopes.includes(scope) || !grant.getResourceScope(config.resource).split(' ').includes(scope))) return denied();
     if (requiredScopes.some(scope => !scopes.includes(scope))) throw new OAuthAccessError(403, 'insufficient_scope');
-    return { accountId: account.id, participantId: account.participantId, clientId, deviceId: binding.deviceId, sessionId: binding.sessionId, scopes };
+    const actor = { accountId: account.id, participantId: account.participantId, clientId, deviceId: binding.deviceId, sessionId: binding.sessionId, scopes };
+    transactionContexts.set(actor, { tokenId: token.jti, grantId: token.grantId, sessionUid: token.sessionUid, actor: JSON.stringify(actor) });
+    return actor;
+  }
+  // Product transactions hold a shared grant lock through their protected write.
+  // Grant revocation/consent changes take its exclusive counterpart in the adapter.
+  // Context stays private: /v1/session never discloses token or grant identifiers.
+  async function assertTransaction(db: PoolClient, actor: Awaited<ReturnType<typeof authorize>>) {
+    const context = transactionContexts.get(actor);
+    const denied = (): never => { throw new OAuthAccessError(401, 'invalid_token'); };
+    if (!context || context.actor !== JSON.stringify(actor)) return denied();
+    const schema = options.schema ?? 'larynx_oauth';
+    await db.query('SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))', [`${schema}:grant:${context.grantId}`]);
+    if ((await db.query(`SELECT 1 FROM ${schema}.revoked_grants WHERE grant_id=$1`, [context.grantId])).rowCount) return denied();
+    const rows = (await db.query<{ model: string; payload: AdapterPayload }>(`SELECT model,payload FROM ${schema}.artifacts
+      WHERE (expires_at IS NULL OR expires_at > clock_timestamp()) AND
+      ((model='AccessToken' AND id=$1 AND grant_id=$2) OR (model IN ('Grant','LarynxGrantBinding') AND id=$2)
+        OR (model='Session' AND uid=$3)) FOR SHARE`, [context.tokenId,context.grantId,context.sessionUid])).rows;
+    const token = rows.find(r => r.model === 'AccessToken')?.payload;
+    const grant = rows.find(r => r.model === 'Grant')?.payload;
+    const binding = asBinding(rows.find(r => r.model === 'LarynxGrantBinding')?.payload);
+    const session = rows.find(r => r.model === 'Session')?.payload;
+    if (!token || !grant || !binding || !session || token.accountId !== actor.accountId || token.clientId !== actor.clientId ||
+      token.aud !== config.resource || token.sessionUid !== context.sessionUid || token.grantId !== context.grantId ||
+      grant.accountId !== actor.accountId || grant.clientId !== actor.clientId || session.accountId !== actor.accountId ||
+      binding.accountId !== actor.accountId || binding.deviceId !== actor.deviceId || binding.sessionId !== actor.sessionId ||
+      (token.extra as Record<string, unknown> | undefined)?.device_id !== actor.deviceId ||
+      (token.extra as Record<string, unknown> | undefined)?.login_session_id !== actor.sessionId) return denied();
+    const currentGrant = new provider.Grant(grant);
+    const allowed = currentGrant.getResourceScope(config.resource).split(' ');
+    const scopes = typeof token.scope === 'string' ? token.scope.split(' ').filter(Boolean) : [];
+    if (actor.scopes.some(scope => !scopes.includes(scope)) || scopes.some(scope => !allowed.includes(scope) || !clients.get(actor.clientId)?.allowedScopes.includes(scope))) return denied();
   }
   async function revokeSessions(sessionIds: string[]) {
     if (!sessionIds.length) return;
@@ -220,7 +252,7 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
     const grants = await pool.query(`SELECT id FROM ${schema}.artifacts WHERE model='LarynxGrantBinding' AND payload->>'sessionId'=ANY($1::text[])`, [sessionIds]);
     for (const row of grants.rows) await bindings.revokeByGrantId(row.id);
   }
-  return { provider, mount, authorize, revokeSessions };
+  return { provider, mount, authorize, assertTransaction, revokeSessions };
 }
 
 export class OAuthAccessError extends Error {

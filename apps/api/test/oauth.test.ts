@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import type { IncomingMessage } from 'node:http';
+import { createAdapter } from '../src/oauth/adapter.js';
 import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { createServer } from 'node:net';
 import { test, type TestContext } from 'node:test';
@@ -214,7 +216,7 @@ async function fixture(t: TestContext, redirectUri = callback) {
   }
 
   return { origin, config, pool, schema, discovery, begin, complete, exchange, authorize, session, refresh, introspect,
-    revocationEndpoint, provider: () => oauth.provider,
+    revocationEndpoint, provider: () => oauth.provider, oauth: () => oauth,
     disableAccount: () => { eligible = false; },
     disableDevice: () => { deviceEligible = false; },
     restart: async () => { await app.close(); await start(); },
@@ -573,4 +575,69 @@ test('OAuth protocol and current authorization against PostgreSQL', {
       expires_at = clock_timestamp() - interval '1 second' WHERE model = 'AccessToken' AND id = $2`, [f.config.resource, token.jti]);
     assert.equal((await f.session(tokens.access_token)).status, 401);
   });
+});
+
+
+test('OAuth grants stay current and locked throughout a product transaction', {
+  skip: !databaseUrl, timeout: 30_000,
+}, async t => {
+  const f = await fixture(t);
+  const tokens = await f.authorize();
+  const oauth = f.oauth();
+  const actor = await oauth.authorize({ headers: { authorization: `Bearer ${tokens.access_token}` } } as IncomingMessage, ['profile:read']);
+  const token = await f.provider().AccessToken.find(tokens.access_token);
+  assert.ok(token?.grantId);
+  const db = await f.pool.connect();
+  try {
+  await db.query('BEGIN');
+  await assert.rejects(oauth.assertTransaction(db, { ...actor }), { code: 'invalid_token' });
+  await oauth.assertTransaction(db, actor);
+  const Adapter = createAdapter(f.pool, { schema: f.schema });
+  let revoked = false;
+  const pending = new Adapter('Grant').revokeByGrantId(token.grantId).then(() => { revoked = true; });
+  // Observe the real lock waiter, rather than guessing from elapsed time.
+  let waiting = false;
+  for (let i = 0; i < 100; i++) {
+    const result = await f.pool.query(`SELECT 1 FROM pg_locks WHERE locktype='advisory' AND NOT granted
+      AND objid=(hashtextextended($1,0) & 4294967295)::oid`, [`${f.schema}:grant:${token.grantId}`]);
+    if (result.rowCount) { waiting = true; break; }
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.equal(waiting, true);
+  assert.equal(revoked, false);
+  await db.query('COMMIT');
+  await pending;
+  await db.query('BEGIN');
+  await assert.rejects(oauth.assertTransaction(db, actor), { code: 'invalid_token' });
+  await db.query('ROLLBACK');
+  } finally { await db.query('ROLLBACK'); db.release(); }
+});
+
+test('OAuth transaction assertion rechecks narrowed consent and token expiry', {
+  skip: !databaseUrl, timeout: 30_000,
+}, async t => {
+  const f = await fixture(t);
+  const tokens = await f.authorize();
+  const oauth = f.oauth();
+  const actor = await oauth.authorize({ headers: { authorization: `Bearer ${tokens.access_token}` } } as IncomingMessage, ['profile:read']);
+  const token = await f.provider().AccessToken.find(tokens.access_token);
+  assert.ok(token?.grantId);
+  const grant = await f.provider().Grant.find(token.grantId);
+  assert.ok(grant);
+  grant.rejectResourceScope(f.config.resource, 'profile:read');
+  await grant.save();
+  const db = await f.pool.connect();
+  try {
+  await db.query('BEGIN');
+  await assert.rejects(oauth.assertTransaction(db, actor), { code: 'invalid_token' });
+  await db.query('ROLLBACK');
+  const fresh = await f.authorize();
+  const freshActor = await oauth.authorize({ headers: { authorization: `Bearer ${fresh.access_token}` } } as IncomingMessage, ['profile:read']);
+  const freshToken = await f.provider().AccessToken.find(fresh.access_token);
+  assert.ok(freshToken);
+  await f.pool.query(`UPDATE ${f.schema}.artifacts SET expires_at=clock_timestamp()-interval '1 second' WHERE model='AccessToken' AND id=$1`, [freshToken.jti]);
+  await db.query('BEGIN');
+  await assert.rejects(oauth.assertTransaction(db, freshActor), { code: 'invalid_token' });
+  await db.query('ROLLBACK');
+  } finally { await db.query('ROLLBACK'); db.release(); }
 });

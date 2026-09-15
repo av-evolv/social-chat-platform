@@ -162,7 +162,11 @@ export function createAdapter(pool: Pool, options: OAuthStorageOptions = {}) {
         await this.revokeByGrantId(id);
         return;
       }
-      await pool.query(`DELETE FROM ${schema}.artifacts WHERE model = $1 AND id = $2`, [this.model, id]);
+      await transaction(pool, async client => {
+        const row = (await client.query(`SELECT grant_id FROM ${schema}.artifacts WHERE model=$1 AND id=$2`, [this.model,id])).rows[0];
+        if (row?.grant_id) await lockGrant(client, schema, row.grant_id);
+        await client.query(`DELETE FROM ${schema}.artifacts WHERE model = $1 AND id = $2`, [this.model, id]);
+      });
     }
 
     async revokeByGrantId(grantId: string): Promise<void> {

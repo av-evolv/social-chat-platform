@@ -9,6 +9,7 @@ export interface Registration {
   accountId: string; participantId: string; emailHash: string; emailCiphertext: string;
   credential: CredentialInput; deviceName: string; sessionHash: string; deviceHash: string;
 }
+export interface IdentityStoreOptions { schema?: string; onPrincipalChange?: (db: PoolClient, participantId: string) => Promise<void> }
 export interface StoredCredential extends CredentialInput { accountId: string; revokedAt: string | null }
 export interface SessionResult extends VerifiedSession { revokedSessionIds: string[] }
 const denied = () => new IdentityStoreError('identity_ineligible');
@@ -17,7 +18,7 @@ const denied = () => new IdentityStoreError('identity_ineligible');
 // a single primary snapshot; a response authorized before revocation may finish.
 export class IdentityStore {
   private readonly schema: string;
-  constructor(private readonly pool: Pool, options: { schema?: string } = {}) {
+  constructor(private readonly pool: Pool, private readonly options: IdentityStoreOptions = {}) {
     this.schema = options.schema ?? 'larynx_identity';
     if (!/^[a-z][a-z0-9_]{0,62}$/.test(this.schema)) throw new Error('Invalid SQL identifier');
   }
@@ -43,8 +44,8 @@ export class IdentityStore {
       await db.query(`CREATE SCHEMA IF NOT EXISTS ${s}`);
       await db.query(`CREATE TABLE IF NOT EXISTS ${s}.migrations (version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT clock_timestamp())`);
       const versions = await db.query<{ version: number }>(`SELECT version FROM ${s}.migrations ORDER BY version`);
-      if (versions.rows.some(({ version }) => version > 1)) throw new Error('Identity schema is newer than this application');
-      if (versions.rows.some(({ version }) => version === 1)) return;
+      if (versions.rows.some(({ version }) => version > 2)) throw new Error('Identity schema is newer than this application');
+      if (!versions.rows.some(({ version }) => version === 1)) {
       await db.query(`
         CREATE TABLE ${s}.participants (
           id uuid PRIMARY KEY DEFAULT uuidv7(), created_at timestamptz NOT NULL DEFAULT clock_timestamp()
@@ -89,6 +90,14 @@ export class IdentityStore {
         );
         INSERT INTO ${s}.migrations (version) VALUES (1)
       `);
+      }
+      if (!versions.rows.some(({ version }) => version === 2)) {
+        await db.query(`CREATE TABLE ${s}.participant_aliases (
+          alias_id uuid PRIMARY KEY REFERENCES ${s}.participants(id),
+          canonical_participant_id uuid NOT NULL REFERENCES ${s}.participants(id),
+          CHECK (alias_id <> canonical_participant_id)
+        ); INSERT INTO ${s}.migrations (version) VALUES (2)`);
+      }
     });
   }
   async newId(): Promise<string> {
@@ -138,6 +147,12 @@ export class IdentityStore {
     if (!Number.isSafeInteger(credential.counter) || credential.counter < 0 || credential.counter > 4294967295) throw denied();
     await db.query(`INSERT INTO ${this.schema}.credentials (id,account_id,public_key,counter,transports,device_type,backed_up) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [credential.id,accountId,Buffer.from(credential.publicKey),credential.counter,credential.transports,credential.deviceType ?? 'singleDevice',credential.backedUp ?? false]);
   }
+  private async principalChanged(db: PoolClient, accountId: string): Promise<void> {
+    if (!this.options.onPrincipalChange) return;
+    const row = (await db.query(`SELECT participant_id FROM ${this.schema}.accounts WHERE id=$1`, [accountId])).rows[0];
+    if (!row) throw denied();
+    await this.options.onPrincipalChange(db, row.participant_id);
+  }
   private async issueSession(db: PoolClient, accountId: string, deviceHash: string, deviceName: string, sessionHash: string): Promise<SessionResult> {
     const existing = (await db.query(`SELECT id,revoked_at FROM ${this.schema}.devices WHERE account_id=$1 AND device_hash=$2`, [accountId,deviceHash])).rows[0];
     if (existing?.revoked_at) throw denied();
@@ -145,6 +160,7 @@ export class IdentityStore {
     await db.query(`UPDATE ${this.schema}.devices SET last_seen_at=clock_timestamp(), name=$2 WHERE id=$1`, [deviceId,deviceName]);
     const revoked = await db.query(`UPDATE ${this.schema}.sessions SET revoked_at=clock_timestamp() WHERE account_id=$1 AND device_id=$2 AND revoked_at IS NULL RETURNING id`, [accountId,deviceId]);
     const sessionId: string = (await db.query(`INSERT INTO ${this.schema}.sessions (account_id,device_id,session_hash) VALUES ($1,$2,$3) RETURNING id`, [accountId,deviceId,sessionHash])).rows[0].id;
+    await this.principalChanged(db, accountId);
     return { accountId,deviceId,sessionId,revokedSessionIds: revoked.rows.map((r: { id: string }) => r.id) };
   }
   async register(input: Registration): Promise<SessionResult> {
@@ -209,13 +225,17 @@ export class IdentityStore {
     return this.transaction(async (db) => {
       await this.checkActor(db,actor);
       if (!(await db.query(`UPDATE ${this.schema}.devices SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE id=$1 AND account_id=$2 RETURNING id`, [targetId,actor.accountId])).rowCount) throw new IdentityStoreError('identity_not_found');
-      return (await db.query(`UPDATE ${this.schema}.sessions SET revoked_at=clock_timestamp() WHERE device_id=$1 AND account_id=$2 AND revoked_at IS NULL RETURNING id`, [targetId,actor.accountId])).rows.map((r: { id: string }) => r.id);
+      const revoked = (await db.query(`UPDATE ${this.schema}.sessions SET revoked_at=clock_timestamp() WHERE device_id=$1 AND account_id=$2 AND revoked_at IS NULL RETURNING id`, [targetId,actor.accountId])).rows.map((r: { id: string }) => r.id);
+      await this.principalChanged(db, actor.accountId);
+      return revoked;
     });
   }
   async logout(actor: VerifiedSession): Promise<string[]> {
     return this.transaction(async (db) => {
       await this.checkActor(db,actor);
-      return (await db.query(`UPDATE ${this.schema}.sessions SET revoked_at=clock_timestamp() WHERE id=$1 RETURNING id`, [actor.sessionId])).rows.map((r: { id: string }) => r.id);
+      const revoked = (await db.query(`UPDATE ${this.schema}.sessions SET revoked_at=clock_timestamp() WHERE id=$1 RETURNING id`, [actor.sessionId])).rows.map((r: { id: string }) => r.id);
+      await this.principalChanged(db, actor.accountId);
+      return revoked;
     });
   }
   // Revoked rows are the durable cleanup queue. Current primary eligibility

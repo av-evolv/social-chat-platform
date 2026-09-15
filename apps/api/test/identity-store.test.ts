@@ -33,7 +33,7 @@ test('Identity schema validation rejects unsafe names before database access', a
 test('Identity migration is concurrent, idempotent and generates UUIDv7', integration, async (t) => {
   const { store,pool,schema } = await fixture(t);
   await Promise.all([store.migrate(),store.migrate()]);
-  assert.equal((await pool.query(`SELECT count(*)::int AS count FROM ${schema}.migrations`)).rows[0].count,1);
+  assert.equal((await pool.query(`SELECT count(*)::int AS count FROM ${schema}.migrations`)).rows[0].count,2);
   await pool.query(`INSERT INTO ${schema}.migrations (version) VALUES (99)`);
   await assert.rejects(store.migrate(), /newer than this application/);
   assert.match(await store.newId(), /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
@@ -242,4 +242,17 @@ test('Revoked sessions durably queue OAuth cleanup and completion is bounded and
   assert.equal(await restarted.isSessionActive(second),false);
   await assert.rejects(restarted.pendingRevocations(0));
   await assert.rejects(restarted.pendingRevocations(1001));
+});
+
+
+test('Identity version 1 upgrades aliases without changing existing principals or sessions', integration, async t => {
+  const { store,pool,schema,registration } = await fixture(t);
+  const input = await registration('upgrade');
+  const actor = await store.register(input);
+  await pool.query(`DROP TABLE ${schema}.participant_aliases; DELETE FROM ${schema}.migrations WHERE version=2`);
+  await Promise.all([store.migrate(),store.migrate()]);
+  assert.deepEqual((await pool.query(`SELECT version FROM ${schema}.migrations ORDER BY version`)).rows, [{ version:1 },{ version:2 }]);
+  assert.equal(await store.isSessionActive(actor), true);
+  assert.equal((await store.findAccount(actor.accountId))?.participantId, input.participantId);
+  assert.equal((await pool.query(`SELECT count(*)::int AS count FROM ${schema}.participant_aliases`)).rows[0].count, 0);
 });
