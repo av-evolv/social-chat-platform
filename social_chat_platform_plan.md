@@ -1086,6 +1086,20 @@ Expo fits the TypeScript and mobile-media requirements better than a separate na
 
 ---
 
+
+## 5.6 Interface languages and localization
+
+Larynx will support **English (`en`) and French (`fr`) initially** across the shared web, iOS and Android frontends. Delivery is tracked in [#42](https://github.com/av-evolv/social-chat-platform/issues/42).
+
+- Maintain shared translation catalogs with interpolation and locale-aware pluralization. Localize navigation, account/passkey/consent/recovery screens, validation, accessibility labels, notifications and transactional verification emails. Keep backend error codes stable and translate their user-facing messages.
+- Choose the initial language from the browser/device preference, provide an explicit language selector, and persist the user's choice. Carry locale through unauthenticated signup and OAuth; use English when the requested language is unsupported or a translation is missing.
+- Format dates, times and numbers for the selected locale while preserving each event's timezone and canonical API/storage values. Test French accents, plural forms and longer text on all screen sizes.
+- User-authored conversations, messages and event content retain their original language. Automatic translation is separate future scope.
+
+The initial account implementation in [#5](https://github.com/av-evolv/social-chat-platform/issues/5) creates the surfaces that #42 will localize; English and French coverage is required before public launch. Detailed library selection, catalog structure and verification belong in #42's implementation PR.
+
+---
+
 # 6. Authentication and Onboarding
 
 ## 6.1 Account identity model
