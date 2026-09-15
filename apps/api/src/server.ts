@@ -6,6 +6,9 @@ import { createOAuth } from './oauth/index.js';
 import { createIdentity } from './identity/index.js';
 import { readIdentityConfig } from './identity/config.js';
 
+import { SocialStore } from './social/store.js';
+import { mountSocial } from './social/index.js';
+
 const config = readConfig();
 const pool = new Pool({
   connectionString: config.databaseUrl,
@@ -39,10 +42,16 @@ process.once('SIGTERM', shutdown);
 
 try {
   const oauthConfig = readOAuthConfig();
-  const identity = await createIdentity(pool, readIdentityConfig(oauthConfig), oauthConfig);
+  let social: SocialStore;
+  const identity = await createIdentity(pool, readIdentityConfig(oauthConfig), oauthConfig, {
+    onPrincipalChange: (db, participantId) => social.invalidateParticipant(db, participantId),
+  });
   const oauth = await createOAuth(pool, oauthConfig, identity.directory, { loginPath: '/account/login' });
+  social = new SocialStore(pool, { assertOAuth: oauth.assertTransaction });
+  await social.migrate();
   await oauth.mount(app);
   await identity.mount(app, oauth);
+  await mountSocial(app, oauth, social);
   await app.listen({ host: config.host, port: config.port });
 } catch {
   app.log.error('API failed to start');
