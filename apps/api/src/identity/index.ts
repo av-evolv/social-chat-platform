@@ -10,7 +10,7 @@ import { OAuthAccessError, type createOAuth } from '../oauth/index.js';
 import type { OAuthConfig } from '../oauth/config.js';
 import { canonicalEmail, digest, keyed, protectEmail, secret, type IdentityConfig } from './config.js';
 import { createMailer, type VerificationMailer } from './mail.js';
-import { IdentityStore, IdentityStoreError, type Registration, type SessionResult } from './store.js';
+import { IdentityStore, IdentityStoreError, type Registration, type SessionResult, type IdentityStoreOptions } from './store.js';
 
 type OAuth = Awaited<ReturnType<typeof createOAuth>>;
 const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -22,7 +22,7 @@ function cookie(request: IncomingMessage, name: string): string | undefined {
   const value = values[0]!.slice(name.length + 1);
   return /^[A-Za-z0-9_-]{43}$/.test(value) ? value : undefined;
 }
-export async function createIdentity(pool: Pool, config: IdentityConfig, oauthConfig: OAuthConfig, options: { schema?: string; mailer?: VerificationMailer } = {}) {
+export async function createIdentity(pool: Pool, config: IdentityConfig, oauthConfig: OAuthConfig, options: IdentityStoreOptions & { mailer?: VerificationMailer } = {}) {
   const store = new IdentityStore(pool, options);
   await store.migrate();
   const mail = options.mailer ?? createMailer(config);

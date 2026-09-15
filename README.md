@@ -2,7 +2,7 @@
 
 A private social platform where chat connects people, plans and shared memories. The product frontend uses one TypeScript/Expo codebase for web, iOS and Android; the separate backend uses TypeScript, Node.js 24 and Fastify.
 
-The foundation provides a universal development shell, PostgreSQL/Garage Docker Compose and CI. M1 adds a persisted OAuth2/OIDC provider and scoped API authorization. Verified email/passkey accounts, recovery, shared client login and device management are implemented in #5. Conversations, events and production E2EE remain roadmap work.
+The foundation provides a universal development shell, PostgreSQL/Garage Docker Compose and CI. M1 adds a persisted OAuth2/OIDC provider and scoped API authorization. Verified email/passkey accounts, recovery, shared client login and device management are implemented in #5. Circle management and independent conversation audience policies are implemented in [#6](https://github.com/av-evolv/social-chat-platform/issues/6); see [audience controls](docs/audiences.md). Messaging, events and production E2EE remain roadmap work.
 
 The [project plan](social_chat_platform_plan.md) records the architecture, client AI and future social features. [GitHub milestones](https://github.com/av-evolv/social-chat-platform/milestones) and [issues](https://github.com/av-evolv/social-chat-platform/issues) track delivery. M0 is complete; [#4](https://github.com/av-evolv/social-chat-platform/issues/4) and [#5](https://github.com/av-evolv/social-chat-platform/issues/5) provide M1 authentication. See the [OAuth setup and security boundary](docs/oauth-provider.md).
 
@@ -36,7 +36,7 @@ npm run dev:web
 # Or: npm run dev:client (Expo development server)
 ```
 
-The universal shell currently makes no API calls. Native development builds can be generated with `npm run ios --workspace @larynx/client` or `npm run android --workspace @larynx/client` once Xcode/Android tooling is installed. Expo SDK 57 requires iOS 16.4+ and Xcode 26.4+; verify real target devices before distribution. Do not commit generated native build artifacts unless the project deliberately adopts that workflow.
+The shared account and people screens call the scoped API. Sign in at `/account`, then open “Your circles and conversations” to manage circles and preview audiences. Existing local installations should rerun `npm run accounts:setup` and rebuild the Compose API/client to enable the new consent scopes. Native development builds can be generated with `npm run ios --workspace @larynx/client` or `npm run android --workspace @larynx/client` once Xcode/Android tooling is installed. Expo SDK 57 requires iOS 16.4+ and Xcode 26.4+; verify real target devices before distribution. Do not commit generated native build artifacts unless the project deliberately adopts that workflow.
 
 Stop services with `docker compose down`; this preserves data. `docker compose down --volumes` deletes this project's local database and object storage. Keep `.env` credentials in sync with initialized volumes; changing environment values alone does not rotate existing database/Garage credentials.
 
@@ -51,7 +51,7 @@ npm run test:infra
 npm run test:web
 ```
 
-For database-backed OAuth tests, set `OAUTH_TEST_DATABASE_URL` to your local/disposable primary and run `npm run test --workspace @larynx/api`; CI does this explicitly after PostgreSQL starts. Otherwise these integration tests are skipped.
+For database-backed OAuth, identity and audience tests, set `OAUTH_TEST_DATABASE_URL` to your local/disposable primary and run `npm run test --workspace @larynx/api`; CI does this explicitly after PostgreSQL starts. Otherwise these integration tests are skipped.
 
 The infrastructure and browser checks expect the full Compose stack to be running. `npm run build` compiles the backend and exports the client for web, iOS and Android. Native JavaScript bundles are not native binaries or real-device verification; [#20](https://github.com/av-evolv/social-chat-platform/issues/20) tracks that launch gate.
 
@@ -66,7 +66,7 @@ Expo native peer versions are constrained to its SDK 57 compatibility matrix to 
 - `infra`: local and CI infrastructure configuration.
 - `scripts` and `tests`: cross-service and browser verification.
 
-Product API calls use OAuth tokens with application/audience/scope controls and object-level authorization. The [provider implementation](docs/oauth-provider.md) uses `oidc-provider` with primary PostgreSQL state; #5 supplies actual verified accounts/sessions/devices. Native SQLite and browser IndexedDB, client AI, schema migrations, read replicas and encrypted messaging are selected directions with dedicated roadmap issues.
+Product API calls use OAuth tokens with application/audience/scope controls and object-level authorization. The [provider implementation](docs/oauth-provider.md) uses `oidc-provider` with primary PostgreSQL state; #5 supplies actual verified accounts/sessions/devices. Native SQLite and browser IndexedDB, client AI, read replicas and encrypted messaging are selected directions with dedicated roadmap issues.
 
 Storage coordination will use separate internal (`http://garage:3900` inside Compose) and client-reachable signing endpoints. `.env` defines host-side endpoints for verification; adjust the origin/endpoint variables alongside published ports. Never rewrite hosts after signing or expose server S3 credentials as `EXPO_PUBLIC_*` values. Frontend media transfers and transactional deletion workers are [#15](https://github.com/av-evolv/social-chat-platform/issues/15).
 

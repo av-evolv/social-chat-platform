@@ -106,7 +106,7 @@ export async function signIn(): Promise<void> {
     const metadata = await discovery();
     const nonce = Crypto.randomUUID() + Crypto.randomUUID();
     const redirectUri = Platform.OS === 'web' ? `${window.location.origin}/oauth/callback` : 'larynx://oauth/callback';
-    const auth = new AuthRequest({ state: Crypto.randomUUID() + Crypto.randomUUID(), clientId, redirectUri, responseType: ResponseType.Code, codeChallengeMethod: CodeChallengeMethod.S256, usePKCE: true, scopes: ['openid', 'offline_access', 'profile:read', 'profile:write'], extraParams: { resource, nonce } });
+    const auth = new AuthRequest({ state: Crypto.randomUUID() + Crypto.randomUUID(), clientId, redirectUri, responseType: ResponseType.Code, codeChallengeMethod: CodeChallengeMethod.S256, usePKCE: true, scopes: ['openid', 'offline_access', 'profile:read', 'profile:write', 'circles:read', 'circles:write', 'conversations:read', 'conversations:write'], extraParams: { resource, nonce } });
     const url = await auth.makeAuthUrlAsync(metadata);
     if (!auth.codeVerifier) throw new Error('Could not prepare a secure sign-in request.');
     const flow: PendingFlow = { state: auth.state, nonce, verifier: auth.codeVerifier, redirectUri, createdAt: Date.now() };
@@ -159,11 +159,21 @@ async function access(): Promise<Tokens> {
   return refreshPending;
 }
 
-export async function accountRequest<T>(path: string, method = 'GET'): Promise<T> {
+export async function accountRequest<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const current = await access();
-  const response = await request(`${apiOrigin}${path}`, { method, headers: { Authorization: `Bearer ${current.accessToken}` } });
+  const response = await request(`${apiOrigin}${path}`, { method, headers: { Authorization: `Bearer ${current.accessToken}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   if (response.status === 401) { await clearSession(); throw new Error('Your session has ended. Please sign in again.'); }
-  if (!response.ok) throw new Error(response.status === 403 ? 'This action is not allowed for your session.' : 'The account service is unavailable. Please try again.');
+  if (!response.ok) {
+    const detail = await response.json().catch(() => undefined);
+    const messages: Record<string, string> = {
+      too_many_requests: 'Too many requests. Wait a minute and try again.',
+      revision_conflict: 'This has changed since you opened it. Review the refreshed details and try again.',
+      last_owner: 'Choose another owner before leaving or removing this owner.',
+      crypto_not_ready: 'Encryption is not ready yet. Messages remain unavailable.',
+      idempotency_conflict: 'This request key was already used for a different action. Refresh and try again.',
+    };
+    throw new Error(messages[detail?.error] ?? (response.status === 404 ? 'This item is unavailable or you no longer have access.' : response.status === 409 ? 'This action conflicts with the current membership. Review the refreshed details and try again.' : response.status === 403 ? 'This action is not allowed for your session. Sign in again if you have not approved the requested access.' : response.status === 400 ? 'Check the contact codes and audience choices, then try again.' : 'The service is unavailable. Please try again.'));
+  }
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }
 
