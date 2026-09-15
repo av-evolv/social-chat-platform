@@ -55,6 +55,7 @@ export default function AccountScreen() {
             <View style={styles.card}>
               <Text role="heading" aria-level={2} style={styles.heading}>Signed in</Text>
               <Text style={styles.body}>Your account is verified. Manage the devices that can access it below.</Text>
+              <Link href="/social" style={styles.home}>Your circles and conversations →</Link>
               {account.recoveryGeneration > 0 && <Text style={styles.small}>Account recovery is complete. Previous devices have been signed out.</Text>}
               <Pressable role="button" disabled={busy} style={[styles.secondaryButton, busy && styles.disabled]} onPress={() => void run(async () => { try { await signOut(); setNotice('You have signed out of this device.'); } catch { setNotice('Signed out locally. The server could not be reached; sign in on another device to revoke this session.'); } })}>
                 <Text style={styles.secondaryText}>Sign out</Text>
