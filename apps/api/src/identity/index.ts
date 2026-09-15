@@ -46,7 +46,7 @@ export async function createIdentity(pool: Pool, config: IdentityConfig, oauthCo
     if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) throw new Error('Invalid request');
     return request.body as Record<string, unknown>;
   };
-  const publicKeys = createLocalJWKSet({ keys: oauthConfig.jwks.keys.map(key => createPublicKey({ key: key as JsonWebKey, format: 'jwk' }).export({ format: 'jwk' })) });
+  const publicKeys = createLocalJWKSet({ keys: oauthConfig.jwks.keys.map(key => ({ ...createPublicKey({ key: key as JsonWebKey, format: 'jwk' }).export({ format: 'jwk' }), kid: String(key.kid), alg: 'RS256', use: 'sig' })) });
 
   async function mount(app: FastifyInstance, oauth: OAuth) {
     let cleaning = false;

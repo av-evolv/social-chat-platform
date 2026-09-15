@@ -127,7 +127,7 @@ async function fixture(t: TestContext) {
       grant_type: 'refresh_token', client_id: 'identity-browser', refresh_token: tokens.refresh_token,
     }) });
   }
-  return { origin, pool, schema, browser, context, register, authorize, account, api, refresh, expect, mails };
+  return { origin, pool, schema, browser, context, register, authorize, account, api, refresh, expect, mails, identity, oauth };
 }
 
 test('account browser ceremonies use real WebAuthn and PostgreSQL', { skip: !enabled, timeout: 120_000 }, async t => {
@@ -225,6 +225,21 @@ test('account browser ceremonies use real WebAuthn and PostgreSQL', { skip: !ena
     await f.expect(user.page.locator('#status')).toContainText('Unable to continue');
     assert.equal((await f.pool.query(`SELECT count(*)::integer AS count FROM ${f.schema}.accounts`)).rows[0].count, 0);
     assert.equal((await user.ctx.cookies(f.origin)).some(cookie => cookie.name === 'larynx_session'), false);
+  });
+
+  await t.test('recovery remains usable when OAuth cleanup fails and retries the durable queue', async t => {
+    const f = await fixture(t); const original = await f.context();
+    await f.register(original, 'cleanup@example.com'); const before = await f.authorize(original.page);
+    const cleanup = f.oauth.revokeSessions;
+    f.oauth.revokeSessions = async () => { throw new Error('Injected cleanup outage'); };
+    const replacement = await f.context(); await f.register(replacement, 'cleanup@example.com', true);
+    assert.equal((await f.api('/v1/account', before.access_token)).status, 401);
+    assert.ok((await f.identity.store.pendingRevocations()).length > 0);
+    const current = await f.authorize(replacement.page);
+    assert.equal((await f.account(current)).recoveryGeneration, 1, 'Committed recovery still delivers its session cookie');
+    f.oauth.revokeSessions = cleanup;
+    assert.equal((await f.api('/v1/logout', current.access_token, 'POST')).status, 200);
+    assert.deepEqual(await f.identity.store.pendingRevocations(), []);
   });
 
   await t.test('device revocation cannot cross accounts and self-revocation denies existing grants', async t => {
