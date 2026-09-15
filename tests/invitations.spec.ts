@@ -52,7 +52,7 @@ test('new recipient signs up, proves invited email and accepts only the selected
     await other.getByRole('button',{name:'Accept invitation',exact:true}).click();
     await expect(other.getByText(/Invitation accepted for Circle/)).toBeVisible();
     await expect(other.getByLabel('Invitation code',{exact:true})).toHaveValue('');
-    expect(await other.evaluate(()=>({local:Object.keys(localStorage),session:Object.keys(sessionStorage)}))).toEqual({local:[],session:[]});
+    expect(await other.evaluate(()=>({local:Object.keys(localStorage).filter(key=>key!=='larynx.locale'),session:Object.keys(sessionStorage)}))).toEqual({local:[],session:[]});
     expect(new URL(other.url()).search).toBe(''); expect(new URL(other.url()).hash).toBe('');
     await other.getByRole('link',{name:'Your circles and conversations →',exact:true}).click();
     await expect(other.getByRole('button',{name:circleId!,exact:true})).toBeVisible();

@@ -1,3 +1,4 @@
+import { useI18n } from '../src/i18n';
 import { useEffect, useState } from 'react';
 import Head from 'expo-router/head';
 import { Link } from 'expo-router';
@@ -14,13 +15,13 @@ const colors = {
   muted: '#EAEDE4',
 };
 
-const foundations = [
-  { number: '01', title: 'Conversations', detail: 'A familiar place for your people, with chat at the heart of it.' },
-  { number: '02', title: 'Plans', detail: 'Turn the things you talk about into time spent together.' },
-  { number: '03', title: 'Memories', detail: 'Keep the moments connected to the people who were there.' },
-];
-
 export default function HomeScreen() {
+  const { t } = useI18n();
+  const foundations = [
+    { number: '01', title: t('client.home.conversations'), detail: t('client.home.conversationsDetail') },
+    { number: '02', title: t('client.home.plans'), detail: t('client.home.plansDetail') },
+    { number: '03', title: t('client.home.memories'), detail: t('client.home.memoriesDetail') },
+  ];
   const { width } = useWindowDimensions();
   const [layoutReady, setLayoutReady] = useState(Platform.OS !== 'web');
 
@@ -35,8 +36,8 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.safeArea}>
       {Platform.OS === 'web' && (
         <Head>
-          <title>Larynx — Your people, together</title>
-          <meta name="description" content="A home for your conversations, plans, and shared moments. Larynx is in early development." />
+          <title>{t('client.home.title')}</title>
+          <meta name="description" content={t('client.home.description')} />
         </Head>
       )}
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -49,19 +50,15 @@ export default function HomeScreen() {
               <Text style={styles.wordmark}>Larynx</Text>
             </View>
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>Early development</Text>
+              <Text style={styles.badgeText}>{t('client.home.early')}</Text>
             </View>
           </View>
 
           <View style={[styles.hero, wide && styles.heroWide]}>
             <View style={styles.heroCopy}>
-              <Text style={styles.eyebrow}>A LITTLE CLOSER TO YOUR PEOPLE</Text>
-              <Text role="heading" aria-level={1} style={[styles.title, !wide && styles.titleCompact]}>
-                Good things start with a conversation.
-              </Text>
-              <Text style={styles.intro}>
-                Your chats, the plans that grow from them, and the moments you share. Together in one place.
-              </Text>
+              <Text style={styles.eyebrow}>{t('client.home.eyebrow')}</Text>
+              <Text role="heading" aria-level={1} style={[styles.title, !wide && styles.titleCompact]}>{t('client.home.heading')}</Text>
+              <Text style={styles.intro}>{t('client.home.intro')}</Text>
               <View style={styles.platforms}>
                 <Text style={styles.platformText}>Web</Text>
                 <Text aria-hidden style={styles.separator}>/</Text>
@@ -73,7 +70,7 @@ export default function HomeScreen() {
 
             <View style={[styles.statusCard, wide && styles.statusCardWide]}>
               <View style={styles.cardTop}>
-                <Text style={styles.cardEyebrow}>WHERE WE ARE</Text>
+                <Text style={styles.cardEyebrow}>{t('client.home.where')}</Text>
                 <Text style={styles.step}>01</Text>
               </View>
               <View aria-hidden style={styles.conversationMark}>
@@ -84,19 +81,17 @@ export default function HomeScreen() {
                   <View style={styles.dot} />
                 </View>
               </View>
-              <Text role="heading" aria-level={2} style={styles.cardTitle}>Making room for connection.</Text>
-              <Text style={styles.cardDescription}>
-                Your account is ready to set up. Conversations and shared plans are coming next.
-              </Text>
+              <Text role="heading" aria-level={2} style={styles.cardTitle}>{t('client.home.connection')}</Text>
+              <Text style={styles.cardDescription}>{t('client.home.accountReady')}</Text>
               <View style={styles.cardFooter}>
-                <Text style={styles.cardFooterText}>Get started</Text>
-                <Link href="/account" style={styles.cardFooterValue}>Your account →</Link>
+                <Text style={styles.cardFooterText}>{t('client.home.getStarted')}</Text>
+                <Link href="/account" style={styles.cardFooterValue}>{t('client.home.accountLink')}</Link>
               </View>
             </View>
           </View>
 
           <View style={styles.foundationSection}>
-            <Text role="heading" aria-level={2} style={styles.sectionHeading}>What we’re building toward</Text>
+            <Text role="heading" aria-level={2} style={styles.sectionHeading}>{t('client.home.building')}</Text>
             <View style={[styles.foundationList, wide && styles.foundationListWide]}>
               {foundations.map((foundation) => (
                 <View key={foundation.number} style={styles.foundation}>
@@ -109,8 +104,8 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>More time for your people.</Text>
-            <Text style={styles.footerMeta}>Larynx · Foundation preview</Text>
+            <Text style={styles.footerText}>{t('client.home.moreTime')}</Text>
+            <Text style={styles.footerMeta}>{t('client.home.preview')}</Text>
           </View>
         </View>
       </ScrollView>

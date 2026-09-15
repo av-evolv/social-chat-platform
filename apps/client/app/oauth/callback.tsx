@@ -1,20 +1,24 @@
+import Head from 'expo-router/head';
+import { useI18n } from '../../src/i18n';
 import { useEffect, useState } from 'react';
 import { Link, useRouter } from 'expo-router';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
-import { completeWebSignIn } from '../../src/auth/session';
+import { localizeError, completeWebSignIn } from '../../src/auth/session';
 
 export default function OAuthCallback() {
+  const { t, locale } = useI18n();
   const router = useRouter();
-  const [error, setError] = useState('');
+  const [error, setError] = useState<unknown>();
   useEffect(() => {
     if (Platform.OS !== 'web') return;
-    void completeWebSignIn().then(() => router.replace('/account')).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'Sign-in could not be completed. Please start again.'));
+    void completeWebSignIn().then(() => router.replace('/account')).catch((failure: unknown) => setError(failure));
   }, [router]);
   return (
     <View style={styles.page}>
-      <Text role="heading" aria-level={1} style={styles.heading}>Completing sign-in</Text>
-      {error ? <Text role="alert" style={styles.error}>{error}</Text> : <ActivityIndicator accessibilityLabel="Verifying your sign-in" color="#20372F" />}
-      <Link href="/account" style={styles.link}>Return to your account</Link>
+      {Platform.OS === 'web' && <Head><title>{t('client.common.pageTitle', { page: t('client.callback.heading') })}</title></Head>}
+      <Text role="heading" aria-level={1} style={styles.heading}>{t('client.callback.heading')}</Text>
+      {error ? <Text role="alert" style={styles.error}>{localizeError(error, locale)}</Text> : <ActivityIndicator accessibilityLabel={t('client.callback.verifying')} color="#20372F" />}
+      <Link href="/account" style={styles.link}>{t('client.callback.return')}</Link>
     </View>
   );
 }

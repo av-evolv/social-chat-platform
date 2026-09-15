@@ -1,3 +1,4 @@
+import type { Locale } from '@larynx/i18n';
 import type { Pool, PoolClient } from 'pg';
 import type { VerifiedSession } from '../oauth/accounts.js';
 
@@ -7,7 +8,7 @@ export class IdentityStoreError extends Error {
 export interface CredentialInput { id: string; publicKey: Uint8Array; counter: number; transports: string[]; deviceType?: 'singleDevice' | 'multiDevice'; backedUp?: boolean }
 export interface Registration {
   accountId: string; participantId: string; emailHash: string; emailCiphertext: string;
-  credential: CredentialInput; deviceName: string; sessionHash: string; deviceHash: string;
+  locale?: Locale; credential: CredentialInput; deviceName: string; sessionHash: string; deviceHash: string;
 }
 export interface IdentityStoreOptions { schema?: string; onPrincipalChange?: (db: PoolClient, participantId: string) => Promise<void> }
 export interface StoredCredential extends CredentialInput { accountId: string; revokedAt: string | null }
@@ -44,7 +45,7 @@ export class IdentityStore {
       await db.query(`CREATE SCHEMA IF NOT EXISTS ${s}`);
       await db.query(`CREATE TABLE IF NOT EXISTS ${s}.migrations (version integer PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT clock_timestamp())`);
       const versions = await db.query<{ version: number }>(`SELECT version FROM ${s}.migrations ORDER BY version`);
-      if (versions.rows.some(({ version }) => version > 2)) throw new Error('Identity schema is newer than this application');
+      if (versions.rows.some(({ version }) => version > 3)) throw new Error('Identity schema is newer than this application');
       if (!versions.rows.some(({ version }) => version === 1)) {
       await db.query(`
         CREATE TABLE ${s}.participants (
@@ -98,6 +99,10 @@ export class IdentityStore {
           CHECK (alias_id <> canonical_participant_id)
         ); INSERT INTO ${s}.migrations (version) VALUES (2)`);
       }
+      if (!versions.rows.some(({ version }) => version === 3)) {
+        await db.query(`ALTER TABLE ${s}.accounts ADD COLUMN locale text CHECK (locale IN ('en','fr'));
+          INSERT INTO ${s}.migrations (version) VALUES (3)`);
+      }
     });
   }
   async newId(): Promise<string> {
@@ -124,8 +129,8 @@ export class IdentityStore {
       WHERE r.expires_at <= clock_timestamp() OR r.attempts < $2 RETURNING attempts`, [key,limit,windowSeconds]);
     return result.rowCount === 1;
   }
-  async findIdentity(emailHash: string): Promise<{ accountId: string; participantId: string; recoveryGeneration: number; status: string; emailCiphertext: string } | undefined> {
-    return (await this.pool.query(`SELECT a.id AS "accountId", a.participant_id AS "participantId", a.recovery_generation AS "recoveryGeneration", a.status, i.email_ciphertext AS "emailCiphertext"
+  async findIdentity(emailHash: string): Promise<{ accountId: string; participantId: string; recoveryGeneration: number; status: string; locale: Locale | null; emailCiphertext: string } | undefined> {
+    return (await this.pool.query(`SELECT a.id AS "accountId", a.participant_id AS "participantId", a.recovery_generation AS "recoveryGeneration", a.status, a.locale, i.email_ciphertext AS "emailCiphertext"
       FROM ${this.schema}.identities i JOIN ${this.schema}.accounts a ON a.id=i.account_id WHERE i.email_hash=$1`, [emailHash])).rows[0];
   }
   async credential(id: string): Promise<StoredCredential | undefined> {
@@ -167,13 +172,13 @@ export class IdentityStore {
     return this.transaction(async (db) => {
       await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`${this.schema}:email:${input.emailHash}`]);
       await db.query(`INSERT INTO ${this.schema}.participants (id) VALUES ($1)`, [input.participantId]);
-      await db.query(`INSERT INTO ${this.schema}.accounts (id,participant_id) VALUES ($1,$2)`, [input.accountId,input.participantId]);
+      await db.query(`INSERT INTO ${this.schema}.accounts (id,participant_id,locale) VALUES ($1,$2,$3)`, [input.accountId,input.participantId,input.locale ?? null]);
       await db.query(`INSERT INTO ${this.schema}.identities (email_hash,email_ciphertext,account_id) VALUES ($1,$2,$3)`, [input.emailHash,input.emailCiphertext,input.accountId]);
       await this.insertCredential(db,input.accountId,input.credential);
       return this.issueSession(db,input.accountId,input.deviceHash,input.deviceName,input.sessionHash);
     });
   }
-  async authenticateCredential(input: { credentialId: string; expectedCounter: number; newCounter: number; deviceHash: string; deviceName: string; sessionHash: string }): Promise<SessionResult> {
+  async authenticateCredential(input: { credentialId: string; expectedCounter: number; newCounter: number; deviceHash: string; deviceName: string; sessionHash: string; locale?: Locale }): Promise<SessionResult> {
     return this.transaction(async (db) => {
       const initial = (await db.query(`SELECT account_id FROM ${this.schema}.credentials WHERE id=$1`, [input.credentialId])).rows[0];
       if (!initial) throw denied();
@@ -181,6 +186,7 @@ export class IdentityStore {
       const row = (await db.query(`SELECT counter,revoked_at FROM ${this.schema}.credentials WHERE id=$1 AND account_id=$2`, [input.credentialId,initial.account_id])).rows[0];
       if (!row || row.revoked_at || Number(row.counter) !== input.expectedCounter || !Number.isSafeInteger(input.newCounter) || input.newCounter < 0 || input.newCounter > 4294967295 ||
         ((input.expectedCounter !== 0 || input.newCounter !== 0) && input.newCounter <= input.expectedCounter)) throw denied();
+      if (input.locale) await db.query(`UPDATE ${this.schema}.accounts SET locale=$2 WHERE id=$1`, [initial.account_id,input.locale]);
       await db.query(`UPDATE ${this.schema}.credentials SET counter=$2 WHERE id=$1`, [input.credentialId,input.newCounter]);
       return this.issueSession(db,initial.account_id,input.deviceHash,input.deviceName,input.sessionHash);
     });
@@ -193,7 +199,7 @@ export class IdentityStore {
       await db.query(`UPDATE ${this.schema}.credentials SET revoked_at=clock_timestamp() WHERE account_id=$1 AND revoked_at IS NULL`, [input.accountId]);
       await db.query(`UPDATE ${this.schema}.devices SET revoked_at=clock_timestamp() WHERE account_id=$1 AND revoked_at IS NULL`, [input.accountId]);
       const revoked = await db.query(`UPDATE ${this.schema}.sessions SET revoked_at=clock_timestamp() WHERE account_id=$1 AND revoked_at IS NULL RETURNING id`, [input.accountId]);
-      await db.query(`UPDATE ${this.schema}.accounts SET recovery_generation=recovery_generation+1 WHERE id=$1`, [input.accountId]);
+      await db.query(`UPDATE ${this.schema}.accounts SET recovery_generation=recovery_generation+1,locale=COALESCE($2,locale) WHERE id=$1`, [input.accountId,input.locale ?? null]);
       await this.insertCredential(db,input.accountId,input.credential);
       const result = await this.issueSession(db,input.accountId,input.deviceHash,input.deviceName,input.sessionHash);
       result.revokedSessionIds.push(...revoked.rows.map((r: { id: string }) => r.id));
@@ -205,15 +211,15 @@ export class IdentityStore {
       FROM ${this.schema}.sessions s JOIN ${this.schema}.accounts a ON a.id=s.account_id JOIN ${this.schema}.devices d ON d.id=s.device_id AND d.account_id=s.account_id
       WHERE s.session_hash=$1 AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND a.status='active' AND d.revoked_at IS NULL`, [sessionHash])).rows[0];
   }
-  async findAccount(id: string): Promise<{ id: string; participantId: string } | undefined> {
-    return (await this.pool.query(`SELECT id,participant_id AS "participantId" FROM ${this.schema}.accounts WHERE id=$1 AND status='active'`, [id])).rows[0];
+  async findAccount(id: string): Promise<{ id: string; participantId: string; locale: Locale | null } | undefined> {
+    return (await this.pool.query(`SELECT id,participant_id AS "participantId",locale FROM ${this.schema}.accounts WHERE id=$1 AND status='active'`, [id])).rows[0];
   }
   async isSessionActive(actor: VerifiedSession): Promise<boolean> {
     return (await this.pool.query(`SELECT 1 FROM ${this.schema}.sessions s JOIN ${this.schema}.accounts a ON a.id=s.account_id JOIN ${this.schema}.devices d ON d.id=s.device_id AND d.account_id=s.account_id
       WHERE s.id=$1 AND s.account_id=$2 AND s.device_id=$3 AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND a.status='active' AND d.revoked_at IS NULL`, [actor.sessionId,actor.accountId,actor.deviceId])).rowCount === 1;
   }
-  async accountView(actor: VerifiedSession): Promise<{ accountId: string; participantId: string; recoveryGeneration: number; protectedEmails: string[]; devices: { id: string; name: string; createdAt: string; lastSeenAt: string; revokedAt: string | null; cryptoState: 'pending' }[] } | undefined> {
-    const row = (await this.pool.query(`SELECT a.id AS "accountId",a.participant_id AS "participantId",a.recovery_generation AS "recoveryGeneration",
+  async accountView(actor: VerifiedSession): Promise<{ accountId: string; participantId: string; recoveryGeneration: number; locale: Locale | null; protectedEmails: string[]; devices: { id: string; name: string; createdAt: string; lastSeenAt: string; revokedAt: string | null; cryptoState: 'pending' }[] } | undefined> {
+    const row = (await this.pool.query(`SELECT a.id AS "accountId",a.participant_id AS "participantId",a.recovery_generation AS "recoveryGeneration",a.locale,
       ARRAY(SELECT i.email_ciphertext FROM ${this.schema}.identities i WHERE i.account_id=a.id ORDER BY i.verified_at,i.email_hash) AS "protectedEmails",
       COALESCE((SELECT jsonb_agg(jsonb_build_object('id',d.id,'name',d.name,'createdAt',d.created_at,'lastSeenAt',d.last_seen_at,'revokedAt',d.revoked_at,'cryptoState',d.crypto_state) ORDER BY d.created_at,d.id)
       FROM ${this.schema}.devices d WHERE d.account_id=a.id), '[]'::jsonb) AS devices FROM ${this.schema}.accounts a
@@ -222,6 +228,15 @@ export class IdentityStore {
     if (!row) return undefined;
     row.devices = row.devices.map((device: { createdAt: string; lastSeenAt: string; revokedAt: string | null }) => ({ ...device, createdAt: new Date(device.createdAt).toISOString(), lastSeenAt: new Date(device.lastSeenAt).toISOString(), revokedAt: device.revokedAt === null ? null : new Date(device.revokedAt).toISOString() }));
     return row;
+  }
+  async setLocale(actor: VerifiedSession, locale: Locale, assertOAuth: (db: PoolClient) => Promise<void>): Promise<void> {
+    if (locale !== 'en' && locale !== 'fr') throw denied();
+    await this.transaction(async db => {
+      // OAuth grant/token locks precede the account lock, as in social writes.
+      await assertOAuth(db);
+      await this.checkActor(db,actor);
+      await db.query(`UPDATE ${this.schema}.accounts SET locale=$2 WHERE id=$1`, [actor.accountId,locale]);
+    });
   }
   async revokeDevice(actor: VerifiedSession, targetId: string): Promise<string[]> {
     return this.transaction(async (db) => {

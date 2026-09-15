@@ -1,12 +1,14 @@
 import type { Source } from './types';
 
+export class InvalidSourceError extends Error {}
+
 export function sourceFingerprint(sources: Source[]): string {
   return JSON.stringify(sources.map(source => `${source.type}:${source.id.toLowerCase()}:${source.operation}`).sort());
 }
 
 export function addSource(sources: Source[], type: 'USER' | 'CIRCLE', id: string, operation: Source['operation']): Source[] {
   const normalized = id.trim().toLowerCase();
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized)) throw new Error('Enter a complete contact or circle code.');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(normalized)) throw new InvalidSourceError('Enter a complete contact or circle code.');
   const source = { type, id: normalized, operation };
   return sources.some(value => value.type === type && value.id === normalized && value.operation === operation) ? sources : [...sources, source];
 }

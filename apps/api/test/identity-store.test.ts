@@ -33,7 +33,7 @@ test('Identity schema validation rejects unsafe names before database access', a
 test('Identity migration is concurrent, idempotent and generates UUIDv7', integration, async (t) => {
   const { store,pool,schema } = await fixture(t);
   await Promise.all([store.migrate(),store.migrate()]);
-  assert.equal((await pool.query(`SELECT count(*)::int AS count FROM ${schema}.migrations`)).rows[0].count,2);
+  assert.equal((await pool.query(`SELECT count(*)::int AS count FROM ${schema}.migrations`)).rows[0].count,3);
   await pool.query(`INSERT INTO ${schema}.migrations (version) VALUES (99)`);
   await assert.rejects(store.migrate(), /newer than this application/);
   assert.match(await store.newId(), /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
@@ -72,8 +72,8 @@ test('Registration binds protected identity, stable participant and pending devi
   assert.equal(actor.accountId,input.accountId);
   assert.equal(await store.isSessionActive(actor),true);
   assert.deepEqual(await store.session(input.sessionHash), { accountId: actor.accountId, deviceId: actor.deviceId, sessionId: actor.sessionId });
-  assert.deepEqual(await store.findAccount(actor.accountId), { id: actor.accountId, participantId: input.participantId });
-  assert.deepEqual(await store.findIdentity(input.emailHash), { accountId: actor.accountId, participantId: input.participantId, recoveryGeneration: 0, status: 'active', emailCiphertext: input.emailCiphertext });
+  assert.deepEqual(await store.findAccount(actor.accountId), { id: actor.accountId, participantId: input.participantId, locale:null });
+  assert.deepEqual(await store.findIdentity(input.emailHash), { accountId: actor.accountId, participantId: input.participantId, recoveryGeneration: 0, status: 'active', emailCiphertext: input.emailCiphertext, locale:null });
   const credential = await store.credential(input.credential.id);
   assert.deepEqual(credential?.publicKey,input.credential.publicKey);
   assert.equal(credential?.revokedAt,null);
@@ -251,8 +251,59 @@ test('Identity version 1 upgrades aliases without changing existing principals o
   const actor = await store.register(input);
   await pool.query(`DROP TABLE ${schema}.participant_aliases; DELETE FROM ${schema}.migrations WHERE version=2`);
   await Promise.all([store.migrate(),store.migrate()]);
-  assert.deepEqual((await pool.query(`SELECT version FROM ${schema}.migrations ORDER BY version`)).rows, [{ version:1 },{ version:2 }]);
+  assert.deepEqual((await pool.query(`SELECT version FROM ${schema}.migrations ORDER BY version`)).rows, [{ version:1 },{ version:2 },{ version:3 }]);
   assert.equal(await store.isSessionActive(actor), true);
   assert.equal((await store.findAccount(actor.accountId))?.participantId, input.participantId);
   assert.equal((await pool.query(`SELECT count(*)::int AS count FROM ${schema}.participant_aliases`)).rows[0].count, 0);
+});
+
+
+test('Locale migration preserves existing accounts and concurrent startup', integration, async t => {
+  const {store,pool,schema,registration} = await fixture(t);
+  const actor = await store.register(await registration('pre-locale'));
+  await pool.query(`ALTER TABLE ${schema}.accounts DROP COLUMN locale; DELETE FROM ${schema}.migrations WHERE version=3`);
+  await Promise.all([store.migrate(),store.migrate()]);
+  assert.equal((await store.accountView(actor))?.locale,null);
+  assert.equal(await store.isSessionActive(actor),true);
+  await assert.rejects(pool.query(`UPDATE ${schema}.accounts SET locale='es'`));
+});
+
+test('Locale writes require fresh OAuth and account eligibility in the same transaction', integration, async t => {
+  const {store,pool,schema,registration} = await fixture(t);
+  const input = {...await registration('locale'),locale:'fr' as const};
+  const actor = await store.register(input);
+  assert.equal((await store.accountView(actor))?.locale,'fr');
+  assert.equal((await store.findIdentity(input.emailHash))?.locale,'fr');
+  const valid = async () => {};
+  await assert.rejects(store.setLocale(actor,'en',async db => {
+    await db.query(`UPDATE ${schema}.accounts SET locale='en' WHERE id=$1`,[actor.accountId]);
+    throw new Error('OAuth revoked');
+  }),/OAuth revoked/);
+  assert.equal((await store.accountView(actor))?.locale,'fr','A failed OAuth assertion rolls back the entire write');
+  await store.setLocale(actor,'en',valid);
+  assert.equal((await store.accountView(actor))?.locale,'en');
+  for (const change of [
+    `UPDATE ${schema}.sessions SET expires_at=clock_timestamp()-interval '1 second'`,
+    `UPDATE ${schema}.devices SET revoked_at=clock_timestamp()`,
+    `UPDATE ${schema}.accounts SET status='suspended'`,
+  ]) {
+    await pool.query(change);
+    await assert.rejects(store.setLocale(actor,'fr',valid),IdentityStoreError);
+    await pool.query(`UPDATE ${schema}.sessions SET expires_at=clock_timestamp()+interval '1 day'; UPDATE ${schema}.devices SET revoked_at=NULL; UPDATE ${schema}.accounts SET status='active'`);
+  }
+  assert.equal((await store.accountView(actor))?.locale,'en');
+});
+
+test('Passive login and recovery preserve a saved locale; explicit selections update it', integration, async t => {
+  const {store,registration} = await fixture(t);
+  const input = {...await registration('locale-persist'),locale:'fr' as const};
+  await store.register(input);
+  const login = {credentialId:input.credential.id,expectedCounter:0,newCounter:0,deviceHash:input.deviceHash,deviceName:'User device',sessionHash:hash('locale-login')};
+  const loggedIn = await store.authenticateCredential(login);
+  assert.equal((await store.accountView(loggedIn))?.locale,'fr');
+  const changed = await store.authenticateCredential({...login,sessionHash:hash('locale-changed'),locale:'en'});
+  assert.equal((await store.accountView(changed))?.locale,'en');
+  const replacement = await registration('locale-recovery');
+  const recovered = await store.recover({...replacement,accountId:input.accountId,participantId:input.participantId,emailHash:input.emailHash,emailCiphertext:input.emailCiphertext,expectedRecoveryGeneration:0});
+  assert.equal((await store.accountView(recovered))?.locale,'en');
 });

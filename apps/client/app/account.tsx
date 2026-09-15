@@ -1,15 +1,19 @@
+import Head from 'expo-router/head';
+import { formatDate } from '@larynx/i18n';
+import { useI18n } from '../src/i18n';
 import { useEffect, useState } from 'react';
 import { Link, useRouter } from 'expo-router';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { accountRequest, clearSession, hasSession, restoreSession, signIn, signOut, type Account, type Session } from '../src/auth/session';
+import { localizeError, accountRequest, clearSession, hasSession, restoreSession, signIn, signOut, type Account, type Session } from '../src/auth/session';
 
 export default function AccountScreen() {
+  const { t, locale } = useI18n();
   const router = useRouter();
   const [account, setAccount] = useState<Account>();
   const [session, setSession] = useState<Session>();
   const [busy, setBusy] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<unknown>();
   const [notice, setNotice] = useState('');
   const [confirmDevice, setConfirmDevice] = useState<string>();
 
@@ -21,9 +25,9 @@ export default function AccountScreen() {
     setSession(nextSession);
   }
   async function run(action: () => Promise<void>) {
-    setBusy(true); setError(''); setNotice('');
+    setBusy(true); setError(undefined); setNotice('');
     try { await action(); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : 'Something went wrong. Please try again.'); }
+    catch (failure) { setError(failure); }
     finally {
       if (!hasSession()) { setAccount(undefined); setSession(undefined); }
       setBusy(false);
@@ -33,62 +37,63 @@ export default function AccountScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      {Platform.OS === 'web' && <Head><title>{t('client.common.pageTitle', { page: t('client.account.title') })}</title></Head>}
       <ScrollView contentContainerStyle={styles.page}>
         <Link href="/" style={styles.home}>← Larynx</Link>
-        <Text role="heading" aria-level={1} style={styles.title}>Your account</Text>
-        <Text style={styles.description}>A place for your identity and the devices you use to connect.</Text>
-        {busy && <View role="status" style={styles.loading}><ActivityIndicator color="#20372F" /><Text style={styles.body}>Please wait…</Text></View>}
-        {!!error && <Text role="alert" style={styles.error}>{error}</Text>}
-        {!!notice && <Text role="status" style={styles.body}>{notice}</Text>}
+        <Text role="heading" aria-level={1} style={styles.title}>{t('client.account.title')}</Text>
+        <Text style={styles.description}>{t('client.account.description')}</Text>
+        {busy && <View role="status" style={styles.loading}><ActivityIndicator color="#20372F" /><Text style={styles.body}>{t('client.common.wait')}</Text></View>}
+        {!!error && <Text role="alert" style={styles.error}>{localizeError(error, locale)}</Text>}
+        {!!notice && <Text role="status" style={styles.body}>{t(notice)}</Text>}
         {!account && (
           <View style={styles.card}>
-            <Text role="heading" aria-level={2} style={styles.heading}>Welcome to Larynx</Text>
-            <Text style={styles.body}>Sign in or create an account securely. Account recovery is available on the sign-in page.</Text>
+            <Text role="heading" aria-level={2} style={styles.heading}>{t('client.account.welcome')}</Text>
+            <Text style={styles.body}>{t('client.account.signInDescription')}</Text>
             <Pressable role="button" disabled={busy} style={[styles.button, busy && styles.disabled]} onPress={() => void run(async () => { await signIn(); if (Platform.OS !== 'web') router.replace('/account'); await load(); })}>
-              <Text style={styles.buttonText}>Sign in or create account</Text>
+              <Text style={styles.buttonText}>{t('client.account.signIn')}</Text>
             </Pressable>
-            <Text style={styles.small}>Recovery restores access to your account. Encrypted history recovery is not yet available.</Text>
+            <Text style={styles.small}>{t('client.account.recoveryWarning')}</Text>
           </View>
         )}
         {account && session && (
           <>
             <View style={styles.card}>
-              <Text role="heading" aria-level={2} style={styles.heading}>Signed in</Text>
-              <Text style={styles.body}>Your account is verified. Manage the devices that can access it below.</Text>
-              <Link href="/social" style={styles.home}>Your circles and conversations →</Link>
-              <Link href="/invitations" style={styles.home}>Send or accept email invitations →</Link>
-              {account.recoveryGeneration > 0 && <Text style={styles.small}>Account recovery is complete. Previous devices have been signed out.</Text>}
-              <Pressable role="button" disabled={busy} style={[styles.secondaryButton, busy && styles.disabled]} onPress={() => void run(async () => { try { await signOut(); setNotice('You have signed out of this device.'); } catch { setNotice('Signed out locally. The server could not be reached; sign in on another device to revoke this session.'); } })}>
-                <Text style={styles.secondaryText}>Sign out</Text>
+              <Text role="heading" aria-level={2} style={styles.heading}>{t('client.account.signedIn')}</Text>
+              <Text style={styles.body}>{t('client.account.verified')}</Text>
+              <Link href="/social" style={styles.home}>{t('client.common.socialLink')}</Link>
+              <Link href="/invitations" style={styles.home}>{t('client.common.invitationsLink')}</Link>
+              {account.recoveryGeneration > 0 && <Text style={styles.small}>{t('client.account.recoveryComplete')}</Text>}
+              <Pressable role="button" disabled={busy} style={[styles.secondaryButton, busy && styles.disabled]} onPress={() => void run(async () => { try { await signOut(); setNotice('client.account.signedOut'); } catch { setNotice('client.account.localSignOut'); } })}>
+                <Text style={styles.secondaryText}>{t('client.account.signOut')}</Text>
               </Pressable>
             </View>
             <View style={styles.card}>
-              <Text role="heading" aria-level={2} style={styles.heading}>Verified emails</Text>
-              <Text style={styles.body}>Each verified email below can be used to recover access to your account.</Text>
+              <Text role="heading" aria-level={2} style={styles.heading}>{t('client.account.emails')}</Text>
+              <Text style={styles.body}>{t('client.account.emailsDescription')}</Text>
               {account.emails.map(email => <Text key={email} selectable style={styles.body}>{email}</Text>)}
             </View>
             <View style={styles.sectionHeader}>
-              <Text role="heading" aria-level={2} style={styles.heading}>Devices</Text>
-              <Pressable role="button" disabled={busy} onPress={() => void run(load)}><Text style={styles.home}>Refresh devices</Text></Pressable>
+              <Text role="heading" aria-level={2} style={styles.heading}>{t('client.account.devices')}</Text>
+              <Pressable role="button" disabled={busy} onPress={() => void run(load)}><Text style={styles.home}>{t('client.account.refreshDevices')}</Text></Pressable>
             </View>
             {account.devices.map((device) => (
               <View key={device.id} style={styles.card}>
-                <Text role="heading" aria-level={3} style={styles.deviceName}>{device.name}{device.id === session.deviceId ? ' · This device' : ''}</Text>
-                <Text style={styles.small}>{device.revokedAt ? 'Revoked' : 'Active'} · Added {new Date(device.createdAt).toLocaleDateString()}</Text>
-                <Text style={styles.small}>Encryption: not yet enabled. This device cannot recover encrypted history.</Text>
+                <Text role="heading" aria-level={3} style={styles.deviceName}>{device.id === session.deviceId ? t('client.account.thisDevice', { name: device.name }) : device.name}</Text>
+                <Text style={styles.small}>{t(device.revokedAt ? 'client.account.deviceRevokedDate' : 'client.account.deviceActive', { date: formatDate(locale, device.createdAt) })}</Text>
+                <Text style={styles.small}>{t('client.account.encryption')}</Text>
                 {!device.revokedAt && (confirmDevice === device.id ? (
                   <View style={styles.actions}>
-                    <Text style={styles.body}>{device.id === session.deviceId ? 'Revoke this device and sign out?' : 'Revoke this device and end its sessions?'}</Text>
+                    <Text style={styles.body}>{device.id === session.deviceId ? t('client.account.confirmThisDevice') : t('client.account.confirmOtherDevice')}</Text>
                     <Pressable role="button" disabled={busy} style={styles.secondaryButton} onPress={() => void run(async () => {
                       await accountRequest(`/v1/devices/${encodeURIComponent(device.id)}/revoke`, 'POST');
                       setConfirmDevice(undefined);
-                      if (device.id === session.deviceId) { await clearSession(); setNotice('This device has been revoked.'); }
-                      else { await load(); setNotice('Device revoked. Its sessions can no longer access your account.'); }
-                    })}><Text style={styles.secondaryText}>Confirm revocation</Text></Pressable>
-                    <Pressable role="button" disabled={busy} onPress={() => setConfirmDevice(undefined)}><Text style={styles.home}>Cancel</Text></Pressable>
+                      if (device.id === session.deviceId) { await clearSession(); setNotice('client.account.thisDeviceRevoked'); }
+                      else { await load(); setNotice('client.account.deviceRevoked'); }
+                    })}><Text style={styles.secondaryText}>{t('client.account.confirmRevoke')}</Text></Pressable>
+                    <Pressable role="button" disabled={busy} onPress={() => setConfirmDevice(undefined)}><Text style={styles.home}>{t('client.common.cancel')}</Text></Pressable>
                   </View>
                 ) : (
-                  <Pressable role="button" disabled={busy} style={styles.secondaryButton} onPress={() => setConfirmDevice(device.id)}><Text style={styles.secondaryText}>Revoke device</Text></Pressable>
+                  <Pressable role="button" disabled={busy} style={styles.secondaryButton} onPress={() => setConfirmDevice(device.id)}><Text style={styles.secondaryText}>{t('client.account.revokeDevice')}</Text></Pressable>
                 ))}
               </View>
             ))}

@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/client/package.json apps/client/package.json
 COPY apps/api/package.json apps/api/package.json
+COPY packages/i18n packages/i18n
 COPY vendor vendor
 RUN npm ci
 COPY apps/client apps/client

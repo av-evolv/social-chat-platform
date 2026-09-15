@@ -1,3 +1,5 @@
+import { matchLocale, normalizeLocale, translate, type Locale } from '@larynx/i18n';
+import { languageLinks, requestedLocale } from './locale.js';
 import { createPublicKey, timingSafeEqual, type JsonWebKey } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { IncomingMessage } from 'node:http';
@@ -34,6 +36,8 @@ export async function createIdentity(pool: Pool, config: IdentityConfig, oauthCo
   };
   const directory: AccountDirectory = {
     authenticate: async request => { const value = cookie(request, names.session); return value ? store.session(digest(value)) : undefined; },
+    // Issuer interaction calls this only after its session-bound CSRF ceremony.
+    saveLocale: (actor,locale) => store.setLocale(actor,locale,async () => {}),
     findAccount: id => store.findAccount(id), isSessionActive: value => store.isSessionActive(value),
   };
   const csrf = (flow: string) => keyed(config, 'csrf', flow);
@@ -74,12 +78,23 @@ export async function createIdentity(pool: Pool, config: IdentityConfig, oauthCo
     app.get('/account/login', async (request, reply) => {
       const flow = cookie(request.raw, names.flow) ?? secret(); setCookie(reply, names.flow, flow, 600);
       const query = request.query as Record<string, unknown>;
+      const verified = await directory.authenticate(request.raw);
+      const account = verified ? await store.findAccount(verified.accountId) : undefined;
+      const explicitLocale = matchLocale(query.lang);
+      const locale = explicitLocale ?? account?.locale ?? requestedLocale(query.ui_locales,request.headers['accept-language']);
+      const t = (key: string) => escape(translate(locale,`server.${key}`));
       reply.headers({ 'cache-control': 'no-store', 'referrer-policy': 'same-origin', 'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", 'x-content-type-options': 'nosniff' });
-      return reply.type('text/html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="larynx-csrf" content="${csrf(flow)}"><meta name="larynx-return" content="${escape(returnPath(query.return_to))}"><title>Sign in to Larynx</title><link rel="stylesheet" href="/account/style.css"><script src="/account/browser.js" defer></script></head><body><main><a class="brand" href="/account/login">Larynx</a><h1>Your people, together.</h1><p>Sign in securely with a passkey, or start with your email.</p><button id="signin">Sign in with a passkey</button><label class="check"><input id="new-device" type="checkbox">Register this browser as a new device (for a revoked or lost device session).</label><hr><form id="email"><label for="email-address">Email address</label><input id="email-address" name="email" type="email" autocomplete="email" required maxlength="254"><label for="purpose">I want to</label><select id="purpose" name="purpose"><option value="register">Create an account</option><option value="recover">Recover my account</option></select><p id="recovery-note" hidden>Recovery replaces all passkeys and signs out all devices. It cannot restore encrypted history or encryption keys.</p><label id="recovery-ack" class="check" hidden><input id="recovery-confirm" type="checkbox">I understand the recovery changes above (required for recovery).</label><button type="submit">Send verification code</button></form><form id="verify" hidden><label for="verification-code">Code from your email</label><input id="verification-code" autocomplete="one-time-code" required><label for="device-name">Name this device</label><input id="device-name" maxlength="80" value="My device" required><button type="submit">Verify email and create passkey</button></form><p id="status" role="status" aria-live="polite"></p><p class="fine">Your passkey stays with your device or password manager.</p></main></body></html>`);
+      return reply.type('text/html').send(`<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="larynx-locale" content="${locale}"><meta name="larynx-explicit-locale" content="${Boolean(explicitLocale)}"><meta name="larynx-csrf" content="${csrf(flow)}"><meta name="larynx-return" content="${escape(returnPath(query.return_to))}"><title>${t('login.title')}</title><link rel="stylesheet" href="/account/style.css"><script src="/account/browser.js" defer></script></head><body><main>${languageLinks(locale,'/account/login',{return_to:returnPath(query.return_to),ui_locales:locale})}<a class="brand" href="/account/login?lang=${locale}&amp;return_to=${encodeURIComponent(returnPath(query.return_to))}">Larynx</a><h1>${t('login.heading')}</h1><p>${t('login.description')}</p><button id="signin">${t('login.passkey')}</button><label class="check"><input id="new-device" type="checkbox">${t('login.newDevice')}</label><hr><form id="email"><label for="email-address">${t('login.email')}</label><input id="email-address" name="email" type="email" autocomplete="email" required maxlength="254"><label for="purpose">${t('login.purpose')}</label><select id="purpose" name="purpose"><option value="register">${t('login.register')}</option><option value="recover">${t('login.recover')}</option></select><p id="recovery-note" hidden>${t('login.recoveryNote')}</p><label id="recovery-ack" class="check" hidden><input id="recovery-confirm" type="checkbox">${t('login.recoveryAck')}</label><button type="submit">${t('login.send')}</button></form><form id="verify" hidden><label for="verification-code">${t('login.code')}</label><input id="verification-code" autocomplete="one-time-code" required><label for="device-name">${t('login.device')}</label><input id="device-name" maxlength="80" value="${t('login.defaultDevice')}" required><button type="submit">${t('login.verify')}</button></form><p id="status" role="status" aria-live="polite"></p><p class="fine">${t('login.fine')}</p></main></body></html>`);
     });
     app.get('/account/style.css', async (_request, reply) => reply.type('text/css').send(`body{margin:0;background:#f5f4ee;color:#20372f;font:16px/1.5 system-ui,sans-serif}main{max-width:460px;margin:5vh auto;padding:32px;background:white;border:1px solid #d9dfd5;border-radius:24px}.brand{font-weight:700;font-size:24px;color:inherit;text-decoration:none}h1{font-size:32px;letter-spacing:-1px}label{display:block;margin-top:14px;font-weight:600}input,select,button{box-sizing:border-box;font:inherit;width:100%;padding:12px;border:1px solid #a8b5a5;border-radius:8px}button{margin-top:16px;background:#20372f;color:white;cursor:pointer}button:disabled{opacity:.5}.check{font-size:13px}.check input{width:auto}hr{border:0;border-top:1px solid #d9dfd5;margin:24px 0}.fine,#recovery-note{font-size:13px;color:#58675d}#status{font-weight:600}[hidden]{display:none!important}@media(max-width:540px){main{margin:16px;padding:24px}}`));
     app.get('/account/browser.js', async (_request, reply) => reply.type('text/javascript').send(await readFile(new URL('./browser.js', import.meta.url), 'utf8').catch(error => { if (error.code !== 'ENOENT') throw error; return readFile(new URL('../../dist/identity/browser.js', import.meta.url), 'utf8'); })));
-    app.get('/account/complete', async (_request, reply) => reply.header('cache-control', 'no-store').type('text/html').send('<!doctype html><html lang="en"><title>Account ready</title><h1>Your account is ready</h1><p>Return to the Larynx app and choose Sign in to continue.</p></html>'));
+    app.get('/account/complete', async (request, reply) => {
+      const account = await directory.authenticate(request.raw);
+      const saved = account ? await store.findAccount(account.accountId) : undefined;
+      const locale = matchLocale((request.query as Record<string,unknown>).lang) ?? saved?.locale ?? requestedLocale(undefined,request.headers['accept-language']);
+      const t = (key: string) => escape(translate(locale,`server.complete.${key}`));
+      return reply.header('cache-control','no-store').type('text/html').send(`<!doctype html><html lang="${locale}"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${t('title')}</title><body>${languageLinks(locale,'/account/complete')}<h1>${t('heading')}</h1><p>${t('description')}</p></body></html>`);
+    });
     async function bootstrap(path: string, handler: (request: FastifyRequest, reply: FastifyReply, body: Record<string, unknown>, browserHash: string) => Promise<unknown>) {
       app.post(path, { bodyLimit: 32_768 }, async (request, reply) => {
         reply.header('cache-control', 'no-store');
@@ -100,11 +115,12 @@ export async function createIdentity(pool: Pool, config: IdentityConfig, oauthCo
       const emailHash = keyed(config, 'email', email);
       if (!await store.rateLimit(keyed(config, 'email-issue', emailHash), 3, 600) || !await store.rateLimit(keyed(config, 'email-ip', request.ip), 10, 600)) return reply.code(202).send({ sent: true });
       const existing = await store.findIdentity(emailHash);
+      const locale = matchLocale(body.locale) ?? requestedLocale(undefined,request.headers['accept-language']);
       const token = secret();
       await store.putChallenge(digest(token), 'email', browser, { purpose, emailHash, emailCiphertext: protectEmail(config, email),
         accountId: existing?.accountId ?? await store.newId(), participantId: existing?.participantId ?? await store.newId(),
-        existing: Boolean(existing), recoveryGeneration: existing?.recoveryGeneration ?? 0, returnTo: returnPath(body.returnTo) }, 600);
-      try { await mail(email, token, purpose as 'register' | 'recover'); } catch { app.log.warn('Verification email delivery failed'); }
+        locale, explicitLocale: body.explicitLocale === true, existing: Boolean(existing), recoveryGeneration: existing?.recoveryGeneration ?? 0, returnTo: returnPath(body.returnTo) }, 600);
+      try { await mail(email, token, purpose as 'register' | 'recover', existing?.locale ?? locale); } catch { app.log.warn('Verification email delivery failed'); }
       return reply.code(202).send({ sent: true });
     });
     await bootstrap('/account/register/options', async (_request, reply, body, browser) => {
@@ -114,7 +130,7 @@ export async function createIdentity(pool: Pool, config: IdentityConfig, oauthCo
       const options = await generateRegistrationOptions({ rpName: 'Larynx', rpID: config.rpId, userName: `Larynx ${accountId.slice(-8)}`, userID: new TextEncoder().encode(accountId), attestationType: 'none',
         authenticatorSelection: { residentKey: 'required', userVerification: 'required' }, timeout: 300_000 });
       const id = secret();
-      await store.putChallenge(digest(id), 'register', browser, { ...proof, challenge: options.challenge, deviceName: string(body.deviceName, 80).trim() || 'My device' }, 300);
+      await store.putChallenge(digest(id), 'register', browser, { ...proof, challenge: options.challenge, deviceName: string(body.deviceName, 80).trim() || translate(normalizeLocale(proof.locale),'server.login.defaultDevice') }, 300);
       return reply.send({ id, options });
     });
     await bootstrap('/account/register/finish', async (_request, reply, body, browser) => {
@@ -125,13 +141,14 @@ export async function createIdentity(pool: Pool, config: IdentityConfig, oauthCo
       const session = secret(); const device = secret(); const credential = checked.registrationInfo.credential;
       const data: Registration = { accountId: string(proof.accountId), participantId: string(proof.participantId), emailHash: string(proof.emailHash), emailCiphertext: string(proof.emailCiphertext),
         credential: { id: credential.id, publicKey: credential.publicKey, counter: credential.counter, transports: credential.transports ?? [], deviceType: checked.registrationInfo.credentialDeviceType, backedUp: checked.registrationInfo.credentialBackedUp },
-        sessionHash: digest(session), deviceHash: digest(device), deviceName: string(proof.deviceName, 80) };
+        sessionHash: digest(session), deviceHash: digest(device), deviceName: string(proof.deviceName, 80),
+        ...(proof.purpose === 'register' || proof.explicitLocale === true ? {locale:normalizeLocale(proof.locale)} : {}) };
       const result = proof.purpose === 'recover' ? await store.recover({ ...data, expectedRecoveryGeneration: Number(proof.recoveryGeneration) }) : await store.register(data);
       return finish(reply, result, session, device, proof.returnTo);
     });
-    await bootstrap('/account/login/options', async (_request, reply, body, browser) => {
+    await bootstrap('/account/login/options', async (request, reply, body, browser) => {
       const options = await generateAuthenticationOptions({ rpID: config.rpId, userVerification: 'required', timeout: 300_000 }); const id = secret();
-      await store.putChallenge(digest(id), 'authenticate', browser, { challenge: options.challenge, returnTo: returnPath(body.returnTo), newDevice: body.newDevice === true }, 300);
+      await store.putChallenge(digest(id), 'authenticate', browser, { challenge: options.challenge, returnTo: returnPath(body.returnTo), newDevice: body.newDevice === true, locale: matchLocale(body.locale) ?? requestedLocale(undefined,request.headers['accept-language']), explicitLocale: body.explicitLocale === true }, 300);
       return reply.send({ id, options });
     });
     await bootstrap('/account/login/finish', async (request, reply, body, browser) => {
@@ -145,7 +162,8 @@ export async function createIdentity(pool: Pool, config: IdentityConfig, oauthCo
       if (!checked.verified) throw new Error('Invalid passkey');
       const session = secret(); const device = proof.newDevice === true ? secret() : cookie(request.raw, names.device) ?? secret();
       const result = await store.authenticateCredential({ credentialId: stored.id, expectedCounter: stored.counter, newCounter: checked.authenticationInfo.newCounter,
-        sessionHash: digest(session), deviceHash: digest(device), deviceName: 'My device' });
+        sessionHash: digest(session), deviceHash: digest(device), deviceName: translate(normalizeLocale(proof.locale),'server.login.defaultDevice'),
+        ...(proof.explicitLocale === true ? {locale:normalizeLocale(proof.locale)} : {}) });
       return finish(reply, result, session, device, proof.returnTo);
     });
     async function product(path: string, scope: 'profile:read' | 'profile:write', handler: (request: FastifyRequest, reply: FastifyReply, actor: Awaited<ReturnType<OAuth['authorize']>>) => Promise<unknown>, method: 'GET' | 'POST' = 'POST') {
@@ -160,6 +178,13 @@ export async function createIdentity(pool: Pool, config: IdentityConfig, oauthCo
       } });
     }
     await product('/v1/account', 'profile:read', async (_request, reply, actor) => { const account = await store.accountView(actor); if (!account) throw new OAuthAccessError(401, 'invalid_token'); const { protectedEmails, ...view } = account; return reply.send({ ...view, emails: protectedEmails.map(value => revealEmail(config,value)) }); }, 'GET');
+    await product('/v1/account/locale', 'profile:write', async (request, reply, actor) => {
+      const body = bodyOf(request);
+      if (Object.keys(body).length !== 1 || (body.locale !== 'en' && body.locale !== 'fr')) return reply.code(400).send({error:'invalid_request'});
+      const locale: Locale = body.locale;
+      await store.setLocale(actor,locale,db => oauth.assertTransaction(db,actor));
+      return reply.send({locale});
+    });
     await product('/v1/devices/:id/revoke', 'profile:write', async (request, reply, actor) => {
       await store.revokeDevice(actor, (request.params as { id: string }).id); await cleanup();
       if ((request.params as { id: string }).id === actor.deviceId) { setCookie(reply, names.session, '', 0); setCookie(reply, names.device, '', 0); }
