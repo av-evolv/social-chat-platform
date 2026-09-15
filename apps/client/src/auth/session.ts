@@ -14,7 +14,7 @@ const tokenKey = 'larynx.oauth.tokens';
 interface Tokens { accessToken: string; refreshToken?: string; expiresAt: number }
 interface Discovery { authorizationEndpoint: string; tokenEndpoint: string }
 export interface Session { accountId: string; participantId: string; clientId: string; deviceId: string; scopes: string[] }
-export interface Account { accountId: string; participantId: string; recoveryGeneration: number; devices: { id: string; name: string; createdAt: string; lastSeenAt: string; revokedAt: string | null; cryptoState: 'pending' }[] }
+export interface Account { emails: string[]; accountId: string; participantId: string; recoveryGeneration: number; devices: { id: string; name: string; createdAt: string; lastSeenAt: string; revokedAt: string | null; cryptoState: 'pending' }[] }
 let tokens: Tokens | undefined;
 let generation = 0;
 let refreshPending: Promise<Tokens> | undefined;
@@ -159,6 +159,10 @@ async function access(): Promise<Tokens> {
   return refreshPending;
 }
 
+export class AccountRequestError extends Error {
+  constructor(public readonly status: number, public readonly code: string | undefined, message: string) { super(message); }
+}
+
 export async function accountRequest<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const current = await access();
   const response = await request(`${apiOrigin}${path}`, { method, headers: { Authorization: `Bearer ${current.accessToken}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -166,13 +170,16 @@ export async function accountRequest<T>(path: string, method = 'GET', body?: unk
   if (!response.ok) {
     const detail = await response.json().catch(() => undefined);
     const messages: Record<string, string> = {
+      invitation_unavailable: 'This invitation or verification code cannot be used. Check the code and use the account registered with the invited email address, or ask the sender for a new invitation.',
+      invalid_email: 'Enter a valid email address.',
+      rate_limited: 'Too many requests. Wait a few minutes and try again.',
       too_many_requests: 'Too many requests. Wait a minute and try again.',
       revision_conflict: 'This has changed since you opened it. Review the refreshed details and try again.',
       last_owner: 'Choose another owner before leaving or removing this owner.',
       crypto_not_ready: 'Encryption is not ready yet. Messages remain unavailable.',
       idempotency_conflict: 'This request key was already used for a different action. Refresh and try again.',
     };
-    throw new Error(messages[detail?.error] ?? (response.status === 404 ? 'This item is unavailable or you no longer have access.' : response.status === 409 ? 'This action conflicts with the current membership. Review the refreshed details and try again.' : response.status === 403 ? 'This action is not allowed for your session. Sign in again if you have not approved the requested access.' : response.status === 400 ? 'Check the contact codes and audience choices, then try again.' : 'The service is unavailable. Please try again.'));
+    throw new AccountRequestError(response.status, typeof detail?.error === 'string' ? detail.error : undefined, messages[detail?.error] ?? (response.status === 404 ? 'This item is unavailable or you no longer have access.' : response.status === 409 ? 'This action conflicts with the current membership. Review the refreshed details and try again.' : response.status === 403 ? 'This action is not allowed for your session. Sign in again if you have not approved the requested access.' : response.status === 400 ? 'Check the contact codes and audience choices, then try again.' : 'The service is unavailable. Please try again.'));
   }
   return response.status === 204 ? undefined as T : response.json() as Promise<T>;
 }

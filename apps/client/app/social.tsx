@@ -100,6 +100,7 @@ export default function SocialScreen() {
     <Link href="/account" style={styles.link}>← Your account</Link>
     <Text role="heading" aria-level={1} style={styles.title}>Your people</Text>
     <Text style={styles.description}>Organize circles and choose who belongs in each conversation.</Text>
+    <Link href="/invitations" style={styles.link}>Send or accept email invitations →</Link>
     {busy && <View role="status" style={styles.row}><ActivityIndicator color="#20372F" /><Text style={styles.body}>Please wait…</Text></View>}
     {!!error && <Text role="alert" style={styles.error}>{error}</Text>}
     {!!notice && <Text role="status" style={styles.body}>{notice}</Text>}
