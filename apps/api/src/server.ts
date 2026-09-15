@@ -8,6 +8,9 @@ import { readIdentityConfig } from './identity/config.js';
 
 import { SocialStore } from './social/store.js';
 import { mountSocial } from './social/index.js';
+import { InvitationStore } from './invitations/store.js';
+import { mountInvitations } from './invitations/index.js';
+import { createInvitationMailer } from './invitations/mail.js';
 
 const config = readConfig();
 const pool = new Pool({
@@ -42,16 +45,21 @@ process.once('SIGTERM', shutdown);
 
 try {
   const oauthConfig = readOAuthConfig();
+  const identityConfig = readIdentityConfig(oauthConfig);
   let social: SocialStore;
-  const identity = await createIdentity(pool, readIdentityConfig(oauthConfig), oauthConfig, {
+  const identity = await createIdentity(pool, identityConfig, oauthConfig, {
     onPrincipalChange: (db, participantId) => social.invalidateParticipant(db, participantId),
   });
   const oauth = await createOAuth(pool, oauthConfig, identity.directory, { loginPath: '/account/login' });
   social = new SocialStore(pool, { assertOAuth: oauth.assertTransaction });
   await social.migrate();
+  const invitations = new InvitationStore(pool,social,identityConfig);
+  await invitations.migrate();
   await oauth.mount(app);
   await identity.mount(app, oauth);
   await mountSocial(app, oauth, social);
+  const frontend = oauthConfig.clients.find(client => client.client_id === 'larynx-web')?.redirect_uris?.[0] ?? identityConfig.origin;
+  await mountInvitations(app,oauth,invitations,createInvitationMailer(identityConfig,frontend));
   await app.listen({ host: config.host, port: config.port });
 } catch {
   app.log.error('API failed to start');

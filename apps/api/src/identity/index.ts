@@ -8,7 +8,7 @@ import type { Pool } from 'pg';
 import type { AccountDirectory, VerifiedSession } from '../oauth/accounts.js';
 import { OAuthAccessError, type createOAuth } from '../oauth/index.js';
 import type { OAuthConfig } from '../oauth/config.js';
-import { canonicalEmail, digest, keyed, protectEmail, secret, type IdentityConfig } from './config.js';
+import { canonicalEmail, digest, keyed, protectEmail, revealEmail, secret, type IdentityConfig } from './config.js';
 import { createMailer, type VerificationMailer } from './mail.js';
 import { IdentityStore, IdentityStoreError, type Registration, type SessionResult, type IdentityStoreOptions } from './store.js';
 
@@ -159,7 +159,7 @@ export async function createIdentity(pool: Pool, config: IdentityConfig, oauthCo
         }
       } });
     }
-    await product('/v1/account', 'profile:read', async (_request, reply, actor) => { const account = await store.accountView(actor); if (!account) throw new OAuthAccessError(401, 'invalid_token'); return reply.send(account); }, 'GET');
+    await product('/v1/account', 'profile:read', async (_request, reply, actor) => { const account = await store.accountView(actor); if (!account) throw new OAuthAccessError(401, 'invalid_token'); const { protectedEmails, ...view } = account; return reply.send({ ...view, emails: protectedEmails.map(value => revealEmail(config,value)) }); }, 'GET');
     await product('/v1/devices/:id/revoke', 'profile:write', async (request, reply, actor) => {
       await store.revokeDevice(actor, (request.params as { id: string }).id); await cleanup();
       if ((request.params as { id: string }).id === actor.deviceId) { setCookie(reply, names.session, '', 0); setCookie(reply, names.device, '', 0); }

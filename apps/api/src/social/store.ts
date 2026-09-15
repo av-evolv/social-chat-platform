@@ -45,9 +45,10 @@ export class SocialStore {
   private async graphLock(db: PoolClient): Promise<void> {
     await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`${this.schema}:policy`]);
   }
-  private async transaction<T>(actor: SocialActor, work: (db: PoolClient) => Promise<T>, operation?: string): Promise<T> {
+  private async transaction<T>(actor: SocialActor, work: (db: PoolClient) => Promise<T>, operation?: string, emailHash?: string): Promise<T> {
     return this.rawTransaction(async db => {
       if (operation) await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`${this.schema}:operation:${actor.participantId}:${actor.clientId}:${operation}`]);
+      if (emailHash) await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`${this.identity}:email:${emailHash}`]);
       await this.assertOAuth(db, actor);
       const account = (await db.query(`SELECT participant_id,status FROM ${this.identity}.accounts WHERE id=$1 FOR UPDATE`, [actor.accountId])).rows[0];
       if (!account || account.status !== 'active' || account.participant_id !== actor.participantId) throw new SocialError(401, 'invalid_token');
@@ -57,6 +58,41 @@ export class SocialStore {
       await this.reconcileAll(db);
       return work(db);
     });
+  }
+  /** Trusted service boundary. Never expose arbitrary callbacks or lock keys to clients. */
+  async withPolicy<T>(actor: SocialActor, work: (db: PoolClient) => Promise<T>, options: { operation?: string; emailHash?: string } = {}): Promise<T> {
+    return this.transaction(actor,work,options.operation,options.emailHash);
+  }
+  async checkInvitationAuthority(db: PoolClient, participantId: string, target: { type: 'CIRCLE' | 'CONVERSATION'; id: string }, expectedRevision?: string): Promise<void> {
+    participantId = await this.canonical(db,participantId);
+    if (!await this.eligible(db,participantId)) throw missing();
+    const actor = { participantId };
+    if (target.type === 'CIRCLE') {
+      const view = await this.circleView(db,actor,target.id,true); this.manager(view.role);
+      if (expectedRevision !== undefined) this.expect(view.revision,expectedRevision);
+    } else {
+      const view = await this.conversationView(db,actor,target.id,true);
+      if (view.orphaned) throw conflict('orphaned_conversation');
+      if (expectedRevision !== undefined) this.expect(view.revision,expectedRevision);
+    }
+  }
+  /** Called only after verified alias binding, inside withPolicy's transaction. */
+  async acceptInvitation(db: PoolClient, invitedParticipantId: string, target: { type: 'CIRCLE' | 'CONVERSATION'; id: string }): Promise<void> {
+    const canonical = await this.canonical(db,invitedParticipantId);
+    if (!await this.eligible(db,canonical)) throw missing();
+    if (target.type === 'CIRCLE') {
+      const existing = (await this.circleMembers(db,target.id)).find(member => member.participantId === canonical);
+      if (existing?.state === 'ACTIVE') return;
+      for (const row of (await db.query(`SELECT participant_id FROM ${this.schema}.circle_memberships WHERE circle_id=$1`, [target.id])).rows) {
+        if (await this.canonical(db,row.participant_id) === canonical) await db.query(`UPDATE ${this.schema}.circle_memberships SET state='ACTIVE',role='MEMBER' WHERE circle_id=$1 AND participant_id=$2`, [target.id,row.participant_id]);
+      }
+      await db.query(`INSERT INTO ${this.schema}.circle_memberships VALUES($1,$2,'MEMBER','ACTIVE') ON CONFLICT(circle_id,participant_id) DO UPDATE SET state='ACTIVE',role='MEMBER'`, [target.id,invitedParticipantId]);
+      await this.updateCircle(db,target.id);
+    } else {
+      await db.query(`INSERT INTO ${this.schema}.audience_sources(conversation_id,type,source_id,operation) VALUES($1,'USER',$2,'INCLUDE') ON CONFLICT DO NOTHING`, [target.id,invitedParticipantId]);
+      await db.query(`UPDATE ${this.schema}.conversations SET revision=revision+1 WHERE id=$1`, [target.id]);
+      await this.reconcile(db,target.id);
+    }
   }
   async migrate(): Promise<void> {
     const s = this.schema;
@@ -111,7 +147,7 @@ export class SocialStore {
     for (const row of (await db.query(`SELECT participant_id FROM ${this.schema}.circle_memberships WHERE circle_id=$1`, [id])).rows) if (await this.canonical(db,row.participant_id) === participantId) refs.push(row.participant_id);
     return refs;
   }
-  private async circleView(db: PoolClient, actor: SocialActor, id: string, requireActive = false): Promise<CircleView> {
+  private async circleView(db: PoolClient, actor: Pick<SocialActor,'participantId'>, id: string, requireActive = false): Promise<CircleView> {
     const row = (await db.query<CircleRow>(`SELECT * FROM ${this.schema}.circles WHERE id=$1 AND deleted_at IS NULL`, [id])).rows[0];
     const members = await this.circleMembers(db, id);
     const own = members.find(member => member.participantId === actor.participantId);
@@ -354,10 +390,10 @@ export class SocialStore {
     const rows = (await db.query(`SELECT DISTINCT conversation_id FROM ${this.schema}.audience_sources WHERE type='EVENT' AND source_id=$1 ORDER BY conversation_id`, [eventId])).rows;
     for (const row of rows) await this.reconcile(db,row.conversation_id,true);
   }
-  private async conversationView(db: PoolClient, actor: SocialActor, id: string, manage: true): Promise<PendingConversationView>;
-  private async conversationView(db: PoolClient, actor: SocialActor, id: string, manage?: false): Promise<ConversationView>;
-  private async conversationView(db: PoolClient, actor: SocialActor, id: string, manage: boolean): Promise<ConversationView>;
-  private async conversationView(db: PoolClient, actor: SocialActor, id: string, manage = false): Promise<ConversationView> {
+  private async conversationView(db: PoolClient, actor: Pick<SocialActor,'participantId'>, id: string, manage: true): Promise<PendingConversationView>;
+  private async conversationView(db: PoolClient, actor: Pick<SocialActor,'participantId'>, id: string, manage?: false): Promise<ConversationView>;
+  private async conversationView(db: PoolClient, actor: Pick<SocialActor,'participantId'>, id: string, manage: boolean): Promise<ConversationView>;
+  private async conversationView(db: PoolClient, actor: Pick<SocialActor,'participantId'>, id: string, manage = false): Promise<ConversationView> {
     const row = (await db.query<ConversationRow>(`SELECT * FROM ${this.schema}.conversations WHERE id=$1 AND deleted_at IS NULL`, [id])).rows[0];
     if (!row) throw missing();
     const resolution = await this.resolution(db,id);

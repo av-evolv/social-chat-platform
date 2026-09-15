@@ -165,6 +165,7 @@ export class IdentityStore {
   }
   async register(input: Registration): Promise<SessionResult> {
     return this.transaction(async (db) => {
+      await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`${this.schema}:email:${input.emailHash}`]);
       await db.query(`INSERT INTO ${this.schema}.participants (id) VALUES ($1)`, [input.participantId]);
       await db.query(`INSERT INTO ${this.schema}.accounts (id,participant_id) VALUES ($1,$2)`, [input.accountId,input.participantId]);
       await db.query(`INSERT INTO ${this.schema}.identities (email_hash,email_ciphertext,account_id) VALUES ($1,$2,$3)`, [input.emailHash,input.emailCiphertext,input.accountId]);
@@ -211,8 +212,9 @@ export class IdentityStore {
     return (await this.pool.query(`SELECT 1 FROM ${this.schema}.sessions s JOIN ${this.schema}.accounts a ON a.id=s.account_id JOIN ${this.schema}.devices d ON d.id=s.device_id AND d.account_id=s.account_id
       WHERE s.id=$1 AND s.account_id=$2 AND s.device_id=$3 AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND a.status='active' AND d.revoked_at IS NULL`, [actor.sessionId,actor.accountId,actor.deviceId])).rowCount === 1;
   }
-  async accountView(actor: VerifiedSession): Promise<{ accountId: string; participantId: string; recoveryGeneration: number; devices: { id: string; name: string; createdAt: string; lastSeenAt: string; revokedAt: string | null; cryptoState: 'pending' }[] } | undefined> {
+  async accountView(actor: VerifiedSession): Promise<{ accountId: string; participantId: string; recoveryGeneration: number; protectedEmails: string[]; devices: { id: string; name: string; createdAt: string; lastSeenAt: string; revokedAt: string | null; cryptoState: 'pending' }[] } | undefined> {
     const row = (await this.pool.query(`SELECT a.id AS "accountId",a.participant_id AS "participantId",a.recovery_generation AS "recoveryGeneration",
+      ARRAY(SELECT i.email_ciphertext FROM ${this.schema}.identities i WHERE i.account_id=a.id ORDER BY i.verified_at,i.email_hash) AS "protectedEmails",
       COALESCE((SELECT jsonb_agg(jsonb_build_object('id',d.id,'name',d.name,'createdAt',d.created_at,'lastSeenAt',d.last_seen_at,'revokedAt',d.revoked_at,'cryptoState',d.crypto_state) ORDER BY d.created_at,d.id)
       FROM ${this.schema}.devices d WHERE d.account_id=a.id), '[]'::jsonb) AS devices FROM ${this.schema}.accounts a
       JOIN ${this.schema}.sessions s ON s.account_id=a.id JOIN ${this.schema}.devices current_device ON current_device.id=s.device_id AND current_device.account_id=a.id
