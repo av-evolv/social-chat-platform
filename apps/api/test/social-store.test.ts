@@ -403,3 +403,18 @@ test('Conversation context does not grant access to a circle roster after source
   const withoutSource = await store.setAudience(alice, conversation.id, [source('USER', alice.participantId)], conversation.revision);
   assert.deepEqual(withoutSource.members?.map((member) => member.participantId), [alice.participantId]);
 });
+
+test('A creation replay cannot reveal payload conflicts after the creator loses object access', integration, async (t) => {
+  const { store, actor, circle, id } = await fixture(t);
+  const alice = await actor('alice'); const bob = await actor('bob');
+  await circle(alice, bob);
+  const operationKey = await id();
+  const originalSources = [source('USER', bob.participantId)];
+  let conversation = await store.createConversation(alice, operationKey, originalSources);
+  conversation = await store.conversationRole(alice, conversation.id, bob.participantId, 'OWNER', conversation.revision);
+  conversation = await store.conversationRole(bob, conversation.id, alice.participantId, 'MEMBER', conversation.revision);
+  await store.setAudience(bob, conversation.id, [source('USER', bob.participantId), source('USER', alice.participantId, 'EXCLUDE')], conversation.revision);
+  await assert.rejects(store.conversation(alice, conversation.id), status(404));
+  await assert.rejects(store.createConversation(alice, operationKey, originalSources), status(404));
+  await assert.rejects(store.createConversation(alice, operationKey, []), status(404));
+});

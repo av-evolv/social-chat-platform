@@ -141,7 +141,13 @@ export class SocialStore {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(key)) throw new SocialError(400,'invalid_operation_key');
     const hash = digest(input);
     const row = (await db.query(`SELECT input_digest,object_id FROM ${this.schema}.operations WHERE participant_id=$1 AND client_id=$2 AND operation=$3 AND operation_key=$4`, [actor.participantId,actor.clientId,operation,key])).rows[0];
-    if (row) { if (row.input_digest !== hash) throw conflict('idempotency_conflict'); return row.object_id; }
+    if (row) {
+      // Replay conflicts must not expose retained operation state after access loss.
+      if (operation === 'create_circle') await this.circleView(db,actor,row.object_id);
+      else await this.conversationView(db,actor,row.object_id);
+      if (row.input_digest !== hash) throw conflict('idempotency_conflict');
+      return row.object_id;
+    }
     const id = await create();
     await db.query(`INSERT INTO ${this.schema}.operations(participant_id,client_id,operation,operation_key,input_digest,object_id) VALUES($1,$2,$3,$4,$5,$6)`, [actor.participantId,actor.clientId,operation,key,hash,id]);
     return id;
