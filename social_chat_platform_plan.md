@@ -1193,6 +1193,9 @@ Keep recovery identities independent from E2EE device keys.
 
 ## 6.3 Seamless invitation/signup
 
+M1 [#7](https://github.com/av-evolv/social-chat-platform/issues/7) implements expiring email invitations to existing circles/conversations, fresh invitation-bound proof and explicit signed-in acceptance. New recipients register with the invited email first. Only the selected pending invitation is claimed; its historical participant ID becomes an alias, exclusions remain effective and encryption gates stay closed. Acceptance requires the email already belongs to the account and cannot add recovery channels; additional-email linking requires issuer-hosted passkey confirmation in [#45](https://github.com/av-evolv/social-chat-platform/issues/45). Generic emails and the shared `/invitations` screen expose no private target content before acceptance. Explicit resend rotates hashed credentials and retries failed/interrupted SMTP delivery. See [docs/invitations.md](docs/invitations.md) for transaction, delivery and scope boundaries. Guest OAuth/messaging and deep-link onboarding remain #21; event invitations remain #12.
+
+
 Invitations are critical to network growth.
 
 A registered user should be able to invite:

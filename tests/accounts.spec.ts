@@ -23,7 +23,7 @@ test('register through local email and passkey, return to the app and revoke the
     return Boolean(mailId);
   }).toBe(true);
   const message = await (await request.get(`${inbox}/api/v1/message/${mailId}`)).json();
-  const code = message.Text.match(/\b[A-Za-z0-9_-]{43}\b/)?.[0];
+  const code = (message.Text as string).split(/\r?\n/).map(line=>line.trim()).find(line=>/^[A-Za-z0-9_-]{43}$/.test(line));
   expect(code).toBeTruthy();
   await page.getByLabel('Code from your email', { exact: true }).fill(code);
   await page.getByLabel('Name this device', { exact: true }).fill('Browser test device');
