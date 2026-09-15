@@ -211,5 +211,12 @@
   "client.social.excludedCount_many": "{{number}} excluded",
   "client.notFound.title": "Page not found",
   "client.notFound.description": "This page is unavailable. Return home to continue.",
-  "client.notFound.home": "Return home"
+  "client.notFound.home": "Return home",
+  "client.sync.syncing": "Updating your circles and conversations…",
+  "client.sync.live": "Up to date",
+  "client.sync.retrying": "Connection interrupted. Reconnecting…",
+  "client.sync.paused": "Updates paused while the app is in the background.",
+  "client.sync.error": "Updates stopped",
+  "client.sync.scopeError": "Sign in again to allow conversation updates.",
+  "client.sync.errorDescription": "We could not update your circles and conversations. Try refreshing."
 }
