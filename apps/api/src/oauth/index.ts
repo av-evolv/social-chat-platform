@@ -274,11 +274,12 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
     const scopes = typeof token.scope === 'string' ? token.scope.split(' ').filter(Boolean) : [];
     if (actor.scopes.some(scope => !scopes.includes(scope)) || scopes.some(scope => !allowed.includes(scope) || !clients.get(actor.clientId)?.allowedScopes.includes(scope))) return denied();
   }
+  // Fingerprint high-entropy provider identifiers, never passwords or issuer secrets.
   // Stable over access-token refresh; opaque grant identity never enters DTOs.
   function syncBinding(actor: Awaited<ReturnType<typeof authorize>>): string {
     const context = transactionContexts.get(actor);
     if (!context || context.actor !== JSON.stringify(actor)) throw new OAuthAccessError(401,'invalid_token');
-    return createHash('sha256').update(JSON.stringify(['larynx:sync:grant:v1',config.issuer,context.grantId,context.sessionUid])).digest('hex');
+    return createHash('sha256').update(JSON.stringify(['larynx:sync:grant:v1',context.grantId,context.sessionUid])).digest('hex');
   }
   async function revokeSessions(sessionIds: string[]) {
     if (!sessionIds.length) return;
