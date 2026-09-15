@@ -290,6 +290,9 @@ Recommended fields:
 Circle
   id
   title
+  description
+  logo_media_id (optional)
+  header_media_id (optional)
   created_by
   created_at
   updated_at
@@ -330,6 +333,30 @@ OWNER
 ```
 
 Avoid making circle administrators omnipotent over unrelated conversations unless that is an intentional product decision.
+
+---
+
+## 3.5.1 Friends and circle admission (planned)
+
+Friends are a mutual, accepted relationship between canonical participants, independent of circles. Pending friend requests and unilateral contacts are not friendships. [#51](https://github.com/av-evolv/social-chat-platform/issues/51) tracks friendship lifecycle, admission and previews in M6; the organisation integration is [#54](https://github.com/av-evolv/social-chat-platform/issues/54), depending on [#23](https://github.com/av-evolv/social-chat-platform/issues/23), in M7.
+
+An authorized circle administrator can explicitly add someone as a MEMBER without another circle acceptance step when they are accepted friends, or both have current verified active membership of the same organisation. This is an add operation, not automatic bulk population of circles. Shared email domains and event attendance do not establish organisation membership or friendship. Check current authority and eligibility atomically; these relationships never confer circle administration rights.
+
+Otherwise, create a pending invitation. Before accepting or declining, the intended recipient can preview the circle's members, description, optional logo and optional header image. A recipient-bound preview grant exposes only the necessary member display identities and those circle fields, not email addresses, unrelated profiles, conversations, event contents or organisation rosters. Recheck invitation validity and current preview authorization on every request. Optional images use scoped media delivery from [#15](https://github.com/av-evolv/social-chat-platform/issues/15); text/member preview need not wait for media implementation.
+
+Explicit leave/removal and existing exclusions must not be silently reversed by the shortcut; rejoin requires fresh acceptance. Friendship ending or organisation departure does not automatically remove independently established circle membership. Circle membership can affect explicit conversation audience rules, but never bypasses conversation exclusions, device admission, history boundaries or encryption key distribution in [#10](https://github.com/av-evolv/social-chat-platform/issues/10).
+
+## 3.5.2 Calendar acceptance of an associated circle (planned)
+
+For an event invite sent to an email not associated with an account, send the meeting request without requiring signup or prior circle acceptance. A validated ACCEPTED response from the recipient's calendar system can also accept the explicitly named associated circle. The request must disclose that join effect and identify the circle; it must not join every circle associated with an event or accept unrelated invitations. Event association or ordinary attendance alone remains insufficient.
+
+[#41](https://github.com/av-evolv/social-chat-platform/issues/41) tracks calendar export and email RSVP in M3, integrating event invitations from [#12](https://github.com/av-evolv/social-chat-platform/issues/12). Use interoperable meeting requests/replies with event UID, revision/sequence and attendee response semantics ([iTIP RFC 5546](https://www.rfc-editor.org/rfc/rfc5546.html)). A supplied attendee email, From header or ACCEPTED field alone is not proof: validate control of the intended recipient and correlate the reply to the exact live invitation, event, revision and circle. Define supported calendar-provider verification before enabling this path; reject unverified, forwarded, stale or revoked responses. Process duplicate validated replies idempotently without repeating effects; never restore a revoked invitation or membership after leaving. TENTATIVE, DECLINED and delivery receipts do not count as circle acceptance.
+
+Persist accepted circle consent against the invited participant without inventing a registered account, attaching an identity, issuing OAuth access or admitting a device. Later verified identity claim applies that consent without another circle acceptance prompt, preserving canonical exclusions and auditing reconciliation. Unverified participants do not become active conversation members. A later event decline or cancellation does not implicitly remove an independently accepted circle membership; replay cannot undo a later circle leave.
+
+Calendar delivery is an intentional export of selected event details outside Larynx end-to-end encryption. The organizer authorizes the disclosed fields and the client supplies the export; the backend must not decrypt private event documents. Preview descriptions/assets likewise require scoped disclosure or encryption delivery reviewed before implementation, not a blanket expansion of plaintext metadata. New app, invitation and calendar human-facing copy uses the shared English/French catalogs.
+
+These are planned extensions: the shipped #7 flow still requires verified signed-in acceptance and currently provides no private target preview. Implementation plans and evidence belong to the linked feature PRs.
 
 ---
 
@@ -1193,7 +1220,7 @@ Keep recovery identities independent from E2EE device keys.
 
 ## 6.3 Seamless invitation/signup
 
-M1 [#7](https://github.com/av-evolv/social-chat-platform/issues/7) implements expiring email invitations to existing circles/conversations, fresh invitation-bound proof and explicit signed-in acceptance. New recipients register with the invited email first. Only the selected pending invitation is claimed; its historical participant ID becomes an alias, exclusions remain effective and encryption gates stay closed. Acceptance requires the email already belongs to the account and cannot add recovery channels; additional-email linking requires issuer-hosted passkey confirmation in [#45](https://github.com/av-evolv/social-chat-platform/issues/45). Generic emails and the shared `/invitations` screen expose no private target content before acceptance. Explicit resend rotates hashed credentials and retries failed/interrupted SMTP delivery. See [docs/invitations.md](docs/invitations.md) for transaction, delivery and scope boundaries. Guest OAuth/messaging and deep-link onboarding remain #21; event invitations remain #12.
+M1 [#7](https://github.com/av-evolv/social-chat-platform/issues/7) implements expiring email invitations to existing circles/conversations, fresh invitation-bound proof and explicit signed-in acceptance. New recipients register with the invited email first. Only the selected pending invitation is claimed; its historical participant ID becomes an alias, exclusions remain effective and encryption gates stay closed. Acceptance requires the email already belongs to the account and cannot add recovery channels; additional-email linking requires issuer-hosted passkey confirmation in [#45](https://github.com/av-evolv/social-chat-platform/issues/45). The current generic emails and shared `/invitations` screen expose no private target content before acceptance. Planned recipient-bound circle previews (#51) and organizer-authorized calendar exports (#41) are the explicit, narrowly scoped extensions described in §3.5.1–3.5.2. Explicit resend rotates hashed credentials and retries failed/interrupted SMTP delivery. See [docs/invitations.md](docs/invitations.md) for transaction, delivery and scope boundaries. Guest OAuth/messaging and deep-link onboarding remain #21; event invitations remain #12.
 
 
 Invitations are critical to network growth.
