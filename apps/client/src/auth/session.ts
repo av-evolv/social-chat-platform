@@ -109,7 +109,7 @@ export async function signIn(): Promise<void> {
     const metadata = await discovery();
     const nonce = Crypto.randomUUID() + Crypto.randomUUID();
     const redirectUri = Platform.OS === 'web' ? `${window.location.origin}/oauth/callback` : 'larynx://oauth/callback';
-    const auth = new AuthRequest({ state: Crypto.randomUUID() + Crypto.randomUUID(), clientId, redirectUri, responseType: ResponseType.Code, codeChallengeMethod: CodeChallengeMethod.S256, usePKCE: true, scopes: ['openid', 'offline_access', 'profile:read', 'profile:write', 'circles:read', 'circles:write', 'conversations:read', 'conversations:write'], extraParams: { resource, nonce, ui_locales: getLocale() } });
+    const auth = new AuthRequest({ state: Crypto.randomUUID() + Crypto.randomUUID(), clientId, redirectUri, responseType: ResponseType.Code, codeChallengeMethod: CodeChallengeMethod.S256, usePKCE: true, scopes: ['openid', 'offline_access', 'profile:read', 'profile:write', 'circles:read', 'circles:write', 'conversations:read', 'conversations:write', 'messages:read', 'messages:write', 'sync:read'], extraParams: { resource, nonce, ui_locales: getLocale() } });
     const url = await auth.makeAuthUrlAsync(metadata);
     if (!auth.codeVerifier) throw new LocalizedError('common.error.prepare');
     const flow: PendingFlow = { state: auth.state, nonce, verifier: auth.codeVerifier, redirectUri, createdAt: Date.now() };
