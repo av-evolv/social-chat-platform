@@ -211,5 +211,12 @@
   "client.social.excludedCount_many": "{{number}} exclus",
   "client.notFound.title": "Page introuvable",
   "client.notFound.description": "Cette page n’est pas disponible. Revenez à l’accueil pour continuer.",
-  "client.notFound.home": "Revenir à l’accueil"
+  "client.notFound.home": "Revenir à l’accueil",
+  "client.sync.syncing": "Mise à jour de vos cercles et conversations…",
+  "client.sync.live": "À jour",
+  "client.sync.retrying": "Connexion interrompue. Reconnexion…",
+  "client.sync.paused": "Mises à jour en pause pendant que l’application est en arrière-plan.",
+  "client.sync.error": "Mises à jour arrêtées",
+  "client.sync.scopeError": "Reconnectez-vous pour autoriser les mises à jour des conversations.",
+  "client.sync.errorDescription": "Impossible de mettre à jour vos cercles et conversations. Essayez d’actualiser."
 }
