@@ -14,6 +14,12 @@ async function action(work: () => Promise<void>) {
   finally { buttons.forEach(button => { button.disabled = false; }); }
 }
 let recovery = false;
+field('purpose').addEventListener('change', () => {
+  const recovering = field('purpose').value === 'recover';
+  document.getElementById('recovery-note')!.hidden = !recovering;
+  document.getElementById('recovery-ack')!.hidden = !recovering;
+  field('recovery-confirm').checked = false;
+});
 document.getElementById('email')!.addEventListener('submit', event => {
   event.preventDefault(); void action(async () => {
     recovery = field('purpose').value === 'recover';
