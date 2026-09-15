@@ -77,3 +77,7 @@ Fresh `larynx_sync` and `larynx_messages` schemas are created under migration lo
 - #10: implement the production admission adapter and indexed history candidates; prove actual encrypted multi-device interoperability and revocation races.
 - #11: durable subscription/push worker, opaque hints, background/foreground recovery; no delivery guarantee from push.
 - #19: operational budgets, authorization-safe scaling/replicas, maintenance/load verification. Media and email external-delivery workers remain their own features; PostgreSQL wake hints are not a generic durable external-side-effect worker.
+
+## First client consumer
+
+[#49](https://github.com/av-evolv/social-chat-platform/issues/49) adds the volatile foreground metadata consumer and live social lists; see [client-sync.md](client-sync.md). It stages snapshots and fences cancelled/auth-changed responses but does not implement protected persistence or claim durable D21. Parent #9 remains open for those features and encrypted chat.
