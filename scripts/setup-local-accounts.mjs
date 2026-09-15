@@ -17,7 +17,7 @@ const clientsMatch = oauth.match(/^OAUTH_CLIENTS='([^'\n]+)'$/m);
 if (!clientsMatch) throw new Error('Review local OAuth clients before configuring accounts');
 const clients = JSON.parse(clientsMatch[1]);
 for (const client of clients) {
-  if (['larynx-web', 'larynx-native'].includes(client.client_id)) client.allowedScopes = [...new Set([...client.allowedScopes, 'profile:write', 'circles:read', 'circles:write', 'conversations:read', 'conversations:write'])];
+  if (['larynx-web', 'larynx-native'].includes(client.client_id)) client.allowedScopes = [...new Set([...client.allowedScopes, 'profile:write', 'circles:read', 'circles:write', 'conversations:read', 'conversations:write', 'messages:read', 'messages:write', 'sync:read'])];
 }
 oauth = oauth.replace(clientsMatch[0], `OAUTH_CLIENTS='${JSON.stringify(clients)}'`);
 await writeFile(oauthPath, oauth, { mode: 0o600 });
@@ -31,4 +31,4 @@ try {
   await writeFile('.env.accounts', Object.entries(fields).map(([key, value]) => `${key}='${value}'`).join('\n') + '\n', { mode: 0o600, flag: 'wx' });
   console.log('Created private local account keys and Mailpit configuration.');
 }
-console.log('Local OAuth issuer is localhost; Larynx clients can request profile, circle and conversation scopes with consent.');
+console.log('Local OAuth issuer is localhost; Larynx clients can request profile, circle, conversation, message and sync scopes with consent.');

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
+import { SyncError, type SyncResource } from '../sync/types.js';
 import { SocialError, unavailableEventSources, type AssertOAuthTransaction, type CircleView, type ConversationView, type EventSourceAdapter, type PendingConversationView, type Preview, type Role, type SocialActor, type Source } from './types.js';
 
 const missing = () => new SocialError(404, 'not_found');
@@ -19,12 +20,14 @@ export class SocialStore {
   private readonly identity: string;
   private readonly assertOAuth: AssertOAuthTransaction;
   private readonly events: EventSourceAdapter;
-  constructor(private readonly pool: Pool, options: { schema?: string; identitySchema?: string; assertOAuth: AssertOAuthTransaction; eventSources?: EventSourceAdapter }) {
+  private readonly onPolicyChange: (db: PoolClient, participants: string[]) => Promise<void>;
+  constructor(private readonly pool: Pool, options: { schema?: string; identitySchema?: string; assertOAuth: AssertOAuthTransaction; eventSources?: EventSourceAdapter; onPolicyChange?: (db: PoolClient, participants: string[]) => Promise<void> }) {
     this.schema = options.schema ?? 'larynx_social';
     this.identity = options.identitySchema ?? 'larynx_identity';
     for (const name of [this.schema, this.identity]) if (!/^[a-z][a-z0-9_]{0,62}$/.test(name)) throw new Error('Invalid SQL identifier');
     this.assertOAuth = options.assertOAuth;
     this.events = options.eventSources ?? unavailableEventSources;
+    this.onPolicyChange = options.onPolicyChange ?? (async () => {});
   }
   private async rawTransaction<T>(work: (db: PoolClient) => Promise<T>): Promise<T> {
     for (let attempt = 0; ; attempt++) {
@@ -160,8 +163,14 @@ export class SocialStore {
   private async checkCircleOwners(db: PoolClient, id: string): Promise<void> {
     if (!(await this.circleMembers(db,id)).some(member => member.state === 'ACTIVE' && member.role === 'OWNER')) throw conflict('last_owner');
   }
+  private async invalidateCircle(db: PoolClient, id: string): Promise<void> {
+    const refs = (await db.query(`SELECT participant_id FROM ${this.schema}.circle_memberships WHERE circle_id=$1`, [id])).rows.map(row => row.participant_id as string);
+    const canonical = await Promise.all(refs.map(id => this.canonical(db,id)));
+    await this.onPolicyChange(db,[...new Set([...refs,...canonical])]);
+  }
   private async updateCircle(db: PoolClient, id: string): Promise<void> {
     await db.query(`UPDATE ${this.schema}.circles SET revision=revision+1 WHERE id=$1`, [id]);
+    await this.invalidateCircle(db,id);
     await this.reconcileAll(db);
   }
   async listCircles(actor: SocialActor): Promise<CircleView[]> {
@@ -193,6 +202,7 @@ export class SocialStore {
       const id = await this.operation(db,actor,'create_circle',operationKey,{},async () => {
         const id: string = (await db.query(`INSERT INTO ${this.schema}.circles DEFAULT VALUES RETURNING id`)).rows[0].id;
         await db.query(`INSERT INTO ${this.schema}.circle_memberships VALUES($1,$2,'OWNER','ACTIVE')`, [id,actor.participantId]);
+        await this.invalidateCircle(db,id);
         return id;
       });
       return this.circleView(db,actor,id);
@@ -251,6 +261,7 @@ export class SocialStore {
     return this.transaction(actor, async db => {
       const view = await this.circleView(db,actor,id,true); this.owner(view.role); this.expect(view.revision,expectedRevision);
       await db.query(`UPDATE ${this.schema}.circles SET deleted_at=clock_timestamp(),revision=revision+1 WHERE id=$1`, [id]);
+      await this.invalidateCircle(db,id);
       await this.reconcileAll(db); return { deleted: true };
     });
   }
@@ -369,6 +380,12 @@ export class SocialStore {
       if (!open.some(interval => interval.participant_id === member.participantId)) await db.query(`INSERT INTO ${this.schema}.membership_intervals(conversation_id,participant_id,state,generation,provenance) VALUES($1,$2,'PENDING',$3,$4::jsonb)`, [id,member.participantId,generation,JSON.stringify(member.provenance)]);
     }
     await db.query(`UPDATE ${this.schema}.conversations SET generation=$2,fingerprint=$3,orphaned=$4,send_gate='CLOSED' WHERE id=$1`, [id,generation,resolution.fingerprint,orphaned]);
+    if (changed) {
+      // Include departed and aliased principals: old cursors must reset too.
+      const refs = (await db.query(`SELECT participant_id FROM ${this.schema}.membership_intervals WHERE conversation_id=$1`, [id])).rows.map(row => row.participant_id as string);
+      const canonical = await Promise.all(refs.map(id => this.canonical(db,id)));
+      await this.onPolicyChange(db,[...new Set([...refs,...canonical])]);
+    }
   }
   private async reconcileAll(db: PoolClient): Promise<void> {
     for (const row of (await db.query(`SELECT id FROM ${this.schema}.conversations WHERE deleted_at IS NULL ORDER BY id`)).rows) await this.reconcile(db,row.id);
@@ -382,6 +399,10 @@ export class SocialStore {
     for (const row of (await db.query(`SELECT conversation_id,participant_id FROM ${this.schema}.membership_intervals WHERE ended_at IS NULL`)).rows) if (await this.canonical(db,row.participant_id) === canonical) affected.add(row.conversation_id);
     await this.reconcileAll(db);
     for (const id of affected) await this.reconcile(db,id,true);
+    for (const row of (await db.query(`SELECT DISTINCT circle_id,participant_id FROM ${this.schema}.circle_memberships`)).rows) {
+      if (await this.canonical(db,row.participant_id) === canonical) await this.invalidateCircle(db,row.circle_id);
+    }
+    await this.onPolicyChange(db,[...new Set([participantId,canonical])]);
   }
   /** #12 must acquire this same policy lock before mutating its event source and
    * call this hook in that transaction, before commit. */
@@ -454,7 +475,7 @@ export class SocialStore {
       }
       await this.writeSources(db,id,sources); await this.checkConversationOwners(db,id);
       await db.query(`UPDATE ${this.schema}.conversations SET revision=revision+1 WHERE id=$1`, [id]);
-      await this.reconcile(db,id);
+      await this.reconcile(db,id,true);
       // An administrator can remove their own inherited contribution. Return no
       // private roster after losing authority; this update instead requires an
       // explicit leave so the response and continued client control are defined.
@@ -503,11 +524,48 @@ export class SocialStore {
       await this.reconcile(db,id); return { deleted:true };
     });
   }
+  /** Trusted sync adapter. Caller must already hold withPolicy's transaction. */
+  async syncSnapshot(db: PoolClient, actor: SocialActor, maximum: number): Promise<SyncResource[]> {
+    const resources: SyncResource[] = [];
+    let scanned = 0; let bytes = 2;
+    for (const type of ['circle','conversation'] as const) {
+      if (!actor.scopes.includes(type === 'circle' ? 'circles:read' : 'conversations:read')) continue;
+      const table = type === 'circle' ? 'circles' : 'conversations';
+      const rows = (await db.query(`SELECT id FROM ${this.schema}.${table} WHERE deleted_at IS NULL ORDER BY id LIMIT 10001`)).rows;
+      for (const row of rows) {
+        if (++scanned > 10000) throw new SyncError(413,'sync_snapshot_too_large');
+        try {
+          const data = type === 'circle' ? await this.circleView(db,actor,row.id) : await this.conversationView(db,actor,row.id);
+          const resource = { type, id: data.id, revision: data.revision, data };
+          bytes += Buffer.byteLength(JSON.stringify(resource)) + 1;
+          if (bytes > 2 * 1024 * 1024) throw new SyncError(413,'sync_snapshot_too_large');
+          resources.push(resource);
+          if (resources.length > maximum) return resources;
+        } catch (error) { if (!(error instanceof SocialError && error.status === 404)) throw error; }
+      }
+    }
+    return resources;
+  }
+  async syncVisible(db: PoolClient, actor: SocialActor, resource: SyncResource): Promise<boolean> {
+    if (resource.type === 'message' || !actor.scopes.includes(resource.type === 'circle' ? 'circles:read' : 'conversations:read')) return false;
+    try {
+      if (resource.type === 'circle') await this.circleView(db,actor,resource.id);
+      else await this.conversationView(db,actor,resource.id);
+      return true;
+    } catch (error) { if (error instanceof SocialError && error.status === 404) return false; throw error; }
+  }
+  /** #10 replaces this gate with real device, epoch and history admission in
+   * the caller's existing primary policy transaction. No production bypass. */
+  async assertContentAccess(db: PoolClient, actor: SocialActor, id: string): Promise<never> {
+    const view = await this.conversationView(db,actor,id);
+    if (view.memberState !== 'PENDING') throw missing();
+    throw new SocialError(409,'crypto_not_ready');
+  }
   async withConversationAccess<T>(actor: SocialActor, id: string, action: 'manage' | 'content', callback: (db: PoolClient) => Promise<T>): Promise<T> {
     return this.transaction(actor, async db => {
       const view = await this.conversationView(db,actor,id,action === 'manage');
       if (view.memberState !== 'PENDING') throw missing();
-      if (action === 'content') throw new SocialError(409,'crypto_not_ready');
+      if (action === 'content') return this.assertContentAccess(db,actor,id);
       if (view.orphaned) throw conflict('orphaned_conversation');
       return callback(db);
     });

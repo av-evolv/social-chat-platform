@@ -1,6 +1,6 @@
 import { matchLocale, translate } from '@larynx/i18n';
 import { languageLinks, requestedLocale } from '../identity/locale.js';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import middie from '@fastify/middie';
 import cors from '@fastify/cors';
@@ -274,13 +274,19 @@ export async function createOAuth(pool: Pool, config: OAuthConfig, accounts: Acc
     const scopes = typeof token.scope === 'string' ? token.scope.split(' ').filter(Boolean) : [];
     if (actor.scopes.some(scope => !scopes.includes(scope)) || scopes.some(scope => !allowed.includes(scope) || !clients.get(actor.clientId)?.allowedScopes.includes(scope))) return denied();
   }
+  // Stable over access-token refresh; opaque grant identity never enters DTOs.
+  function syncBinding(actor: Awaited<ReturnType<typeof authorize>>): string {
+    const context = transactionContexts.get(actor);
+    if (!context || context.actor !== JSON.stringify(actor)) throw new OAuthAccessError(401,'invalid_token');
+    return createHash('sha256').update(JSON.stringify(['larynx:sync:grant:v1',config.issuer,context.grantId,context.sessionUid])).digest('hex');
+  }
   async function revokeSessions(sessionIds: string[]) {
     if (!sessionIds.length) return;
     const schema = options.schema ?? 'larynx_oauth'; // validated by createAdapter
     const grants = await pool.query(`SELECT id FROM ${schema}.artifacts WHERE model='LarynxGrantBinding' AND payload->>'sessionId'=ANY($1::text[])`, [sessionIds]);
     for (const row of grants.rows) await bindings.revokeByGrantId(row.id);
   }
-  return { provider, mount, authorize, assertTransaction, revokeSessions };
+  return { provider, mount, authorize, assertTransaction, syncBinding, revokeSessions };
 }
 
 export class OAuthAccessError extends Error {

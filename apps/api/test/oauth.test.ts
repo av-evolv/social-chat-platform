@@ -641,3 +641,21 @@ test('OAuth transaction assertion rechecks narrowed consent and token expiry', {
   await db.query('ROLLBACK');
   } finally { await db.query('ROLLBACK'); db.release(); }
 });
+
+test('Sync grant binding survives token refresh but rejects fabricated actors and a different grant', { skip: !databaseUrl, timeout: 30_000 }, async t => {
+  const f = await fixture(t);
+  const tokens = await f.authorize();
+  const oauth = f.oauth();
+  const actor = await oauth.authorize({ headers: { authorization: `Bearer ${tokens.access_token}` } } as IncomingMessage, ['profile:read']);
+  const binding = oauth.syncBinding(actor);
+  assert.match(binding,/^[0-9a-f]{64}$/);
+  assert.throws(() => oauth.syncBinding({ ...actor }),{ code:'invalid_token' });
+  const refreshed = await f.refresh(tokens.refresh_token!);
+  assert.equal(refreshed.status,200);
+  const next = await refreshed.json() as { access_token: string };
+  const nextActor = await oauth.authorize({ headers: { authorization: `Bearer ${next.access_token}` } } as IncomingMessage,['profile:read']);
+  assert.equal(oauth.syncBinding(nextActor),binding);
+  const different = await f.authorize();
+  const otherActor = await oauth.authorize({ headers: { authorization: `Bearer ${different.access_token}` } } as IncomingMessage,['profile:read']);
+  assert.notEqual(oauth.syncBinding(otherActor),binding);
+});
