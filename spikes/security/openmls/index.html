@@ -1,14 +1,48 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Larynx isolated MLS probe</title>
+<title>Larynx isolated MLS wire interoperability fixture</title>
 <pre id="result">Running isolated MLS assertions…</pre>
+<pre id="fixture-status">Loading isolated fixture…</pre>
 <script type="module">
-  import init, { run_probe } from './pkg/larynx_security_spike.js';
+  import init, { FixturePeer, run_probe } from './pkg/larynx_security_spike.js';
   try {
     await init();
+    // Fixture-only, ephemeral peers: never export provider or private state.
+    const peers = new Map();
+    const byteMethods = new Set(['add_member', 'join', 'send', 'receive', 'apply_commit']);
+    const methods = new Set(['key_package', 'create_group', 'add_member', 'join', 'send', 'receive', 'remove_peer', 'apply_commit', 'authenticator', 'active']);
+    window.fixture = {
+      create(id) {
+        if (peers.size >= 2 || peers.has(id) || !/^[a-z-]{1,32}$/.test(id)) throw new Error('invalid_peer');
+        peers.set(id, new FixturePeer(id));
+      },
+      call(id, method, hex) {
+        if (!peers.has(id) || !methods.has(method)) throw new Error('invalid_command');
+        const peer = peers.get(id);
+        let result;
+        if (byteMethods.has(method)) {
+          const limit = 65536;
+          if (typeof hex !== 'string' || hex.length > limit * 2 || !/^(?:[0-9a-f]{2})*$/.test(hex)) throw new Error('invalid_frame');
+          if (method === 'send' && hex.length > 2048) throw new Error('invalid_plaintext_size');
+          const bytes = Uint8Array.from(hex.match(/../g) ?? [], pair => Number.parseInt(pair, 16));
+          result = peer[method](bytes);
+        } else {
+          result = peer[method]();
+        }
+        return result instanceof Uint8Array
+          ? Array.from(result, byte => byte.toString(16).padStart(2, '0')).join('')
+          : result;
+      },
+      dispose() {
+        for (const peer of peers.values()) peer.free();
+        peers.clear();
+      },
+    };
+    document.querySelector('#fixture-status').textContent = 'READY';
     document.querySelector('#result').textContent = run_probe();
   } catch (error) {
     document.querySelector('#result').textContent = `FAIL: ${error}`;
+    document.querySelector('#fixture-status').textContent = `FAIL: ${error}`;
     throw error;
   }
 </script>

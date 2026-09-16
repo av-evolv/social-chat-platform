@@ -4,6 +4,8 @@ use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::OpenMlsProvider;
 
+pub mod fixture;
+
 const SUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
 
 fn identity(name: &[u8], provider: &OpenMlsRustCrypto) -> (CredentialWithKey, SignatureKeyPair) {
