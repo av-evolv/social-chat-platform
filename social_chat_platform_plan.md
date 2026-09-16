@@ -4056,7 +4056,7 @@ For each selected issue: expand a checkable issue plan, save the detailed implem
 
 - [#8 — Implement durable messages, sync and realtime delivery](https://github.com/av-evolv/social-chat-platform/issues/8).
 - [#9 — Implement shared chat UI and local persistence](https://github.com/av-evolv/social-chat-platform/issues/9).
-- [#10 — Implement device keys and encrypted conversations](https://github.com/av-evolv/social-chat-platform/issues/10).
+- [#10 — Implement device keys and encrypted conversations](https://github.com/av-evolv/social-chat-platform/issues/10). Verification slice [#55](https://github.com/av-evolv/social-chat-platform/issues/55) adds native-host/Chromium MLS wire exchange and CI; authenticated devices, protected persistence and production admission remain in #10.
 - [#11 — Implement subscriptions and opaque notifications](https://github.com/av-evolv/social-chat-platform/issues/11).
 
 ## [M3 — Events and client intelligence](https://github.com/av-evolv/social-chat-platform/milestone/4)

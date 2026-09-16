@@ -64,3 +64,33 @@ jobs:
       - name: Stop CI infrastructure
         if: always()
         run: docker compose down --volumes
+
+  crypto-interop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Install pinned Rust and WASM tools
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component clippy --component rustfmt --target wasm32-unknown-unknown
+          cargo +1.95.0 install wasm-bindgen-cli --version 0.2.126 --locked
+      - name: Verify native MLS fixtures
+        run: |
+          cargo +1.95.0 fmt --manifest-path spikes/security/openmls/Cargo.toml -- --check
+          cargo +1.95.0 test --locked --manifest-path spikes/security/openmls/Cargo.toml
+          cargo +1.95.0 clippy --locked --manifest-path spikes/security/openmls/Cargo.toml --all-targets -- -D warnings
+          cargo +1.95.0 build --locked --manifest-path spikes/security/openmls/Cargo.toml --bin interop-peer
+      - name: Build browser MLS fixtures
+        run: |
+          cargo +1.95.0 build --locked --release --lib --manifest-path spikes/security/openmls/Cargo.toml --target wasm32-unknown-unknown
+          wasm-bindgen --target web --out-dir spikes/security/openmls/pkg spikes/security/openmls/target/wasm32-unknown-unknown/release/larynx_security_spike.wasm
+      - name: Verify native and browser wire exchange
+        run: node spikes/security/openmls/interop-check.cjs

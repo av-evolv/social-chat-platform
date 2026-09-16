@@ -24,7 +24,7 @@ From the repository root, with Rust 1.95.0 (tested), wasm-bindgen CLI 0.2.126 an
 cargo test --locked --manifest-path spikes/security/openmls/Cargo.toml -- --nocapture
 cargo clippy --locked --manifest-path spikes/security/openmls/Cargo.toml -- -D warnings
 rustup target add wasm32-unknown-unknown aarch64-apple-ios aarch64-linux-android
-cargo build --locked --release --manifest-path spikes/security/openmls/Cargo.toml --target wasm32-unknown-unknown
+cargo build --locked --release --lib --manifest-path spikes/security/openmls/Cargo.toml --target wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.126 --locked
 wasm-bindgen --target web --out-dir spikes/security/openmls/pkg spikes/security/openmls/target/wasm32-unknown-unknown/release/larynx_security_spike.wasm
 node spikes/security/openmls/browser-check.cjs
@@ -57,4 +57,23 @@ A rejected tampered ciphertext consumed that receive generation in the in-memory
 - #14/#15/#18: reviewed versioned event envelopes, streaming media and recovery formats; no implicit audience widening; retention applies to key/history backups. MLS does not define the whole product's object encryption or backup scheme.
 - #20: review the exact OpenMLS/provider/dependency/adapter graph and outstanding upstream audit findings, run current vulnerability checks, commission integration security review, and test iOS/Android/Hermes and supported web browsers. Do not advertise production E2EE from compile results or this narrow functional probe.
 
-Upstream source and advisory URLs were checked on the decision date. A full Cargo advisory scan was not run locally (`cargo-audit` is not installed); the checked upstream advisories above are narrower evidence, with the full dependency scan a #20 gate. Root repository CI continues to cover the existing platform; the isolated Rust/browser spike is explicitly run using the commands above and is not yet part of required CI.
+Upstream source and advisory URLs were checked on the decision date. A full Cargo advisory scan was not run locally (`cargo-audit` is not installed); the checked upstream advisories above are narrower evidence, with the full dependency scan a #20 gate. The Platform CI `crypto-interop` job added by [#55](https://github.com/av-evolv/social-chat-platform/issues/55) runs locked Rust fixture tests, formatting/clippy, a WASM build and the native/browser wire exchange below. This verifies fixture behavior; it does not certify production encryption.
+
+## Native/browser wire exchange
+
+[#55](https://github.com/av-evolv/social-chat-platform/issues/55), [PR #56](https://github.com/av-evolv/social-chat-platform/pull/56), extends the disposable probe with actual serialized MLS exchange between a native Rust process and a Chromium WASM peer. The original `run_probe` executes a self-contained scenario in each runtime; it is not cross-runtime interoperability evidence by itself.
+
+Local verification on 2026-09-16 passed with Rust 1.95.0 on macOS arm64 and Chromium 153.0.8010.12. Five Rust tests, formatting/clippy, optimized WASM generation, the original browser smoke and both wire-exchange orientations passed.
+
+The exchange runs both creator/joiner orientations. Each peer generates its own ephemeral fixture credentials and key material. Only serialized KeyPackage, Welcome, application and removal messages cross the runtime boundary, along with test commands/results and public epoch authenticators. No private provider state is copied between peers. Assertions cover matching epochs, bidirectional plaintext recovery, pre-join history rejection, tampering, replay and removed-member exclusion. A fresh send generation follows rejected tampering because receive failure may consume state.
+
+After the WASM build/bindgen commands above, run:
+
+```sh
+cargo build --locked --manifest-path spikes/security/openmls/Cargo.toml --bin interop-peer
+node spikes/security/openmls/interop-check.cjs
+```
+
+The fixture boundary rejects malformed, oversized and unexpected input; process/browser timeouts and cleanup prevent a broken exchange from hanging CI. It remains unauthenticated fixture code with disposable memory. The new native binary is a test harness, not a mobile binding, application service or production cryptographic adapter.
+
+This evidence does not cover persisted restarts, protected atomic storage, verified account/device credentials, independent membership-change authority, iOS/Android/Hermes execution or physical devices. Those #10/#9/#20 gates remain open. No production message gate is opened by these tests.
